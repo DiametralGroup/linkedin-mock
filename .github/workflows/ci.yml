@@ -1,0 +1,123 @@
+# CI: tests + lint on every push/PR, then build & push the container image to
+# GitHub Container Registry (ghcr.io) on main and on version tags.
+#
+# Published image: ghcr.io/littlebigcode/linkedin-mock
+#   :latest   — every push to main
+#   :X.Y.Z    — on tags `vX.Y.Z`
+#   :sha-…    — every pushed build (traceability)
+#
+# Auth is the built-in GITHUB_TOKEN (permissions.packages: write) — no secret
+# to provision. The image is smoke-tested (container boots, /health answers,
+# /rest speaks the LinkedIn dialect) BEFORE being pushed.
+#
+# ⚠️ After the FIRST publish, flip the GHCR package to PUBLIC (GitHub →
+# Packages → linkedin-mock → visibility). A private package makes the Harbor
+# ghcr-proxy pull fail with DENIED and the consumer pods land in
+# ImagePullBackOff — the exact incident boondmanager-mock hit.
+
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*.*.*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the environment
+        run: uv sync --frozen
+
+      - name: Ruff (lint + format)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Mypy (strict)
+        run: uv run mypy src/linkedin_mock
+
+      - name: Pytest (dialect, coherence, evolution, failure modes, committed contract)
+        run: uv run pytest tests/
+
+  image:
+    name: Build & push image (GHCR)
+    needs: tests
+    # PRs only run the tests; the image is published from main and tags.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (tags & OCI labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build (local, for the smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: linkedin-mock:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — the image must boot and speak the dialect
+        run: |
+          docker run -d --rm --name smoke -p 8000:8000 linkedin-mock:smoke
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/health > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/health
+          URL='http://localhost:8000/rest/posts?q=author&author=urn%3Ali%3Aorganization%3A40123456'
+          # Unauthenticated /rest must answer the LinkedIn 401 envelope.
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL")" = "401"
+          # Authenticated but unversioned → 400 (VERSION_MISSING).
+          test "$(curl -s -o /dev/null -w '%{http_code}' \
+            -H 'Authorization: Bearer mock-linkedin-token' "$URL")" = "400"
+          # Fully-formed request → 200 with the elements/paging envelope.
+          test "$(curl -s -o /dev/null -w '%{http_code}' \
+            -H 'Authorization: Bearer mock-linkedin-token' \
+            -H 'Linkedin-Version: 202506' \
+            -H 'X-Restli-Protocol-Version: 2.0.0' "$URL")" = "200"
+          docker stop smoke
+
+      - name: Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha

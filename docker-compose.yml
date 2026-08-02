@@ -1,0 +1,32 @@
+# Local deployment in one command:
+#
+#     docker compose up --build
+#
+# The mock answers on http://localhost:8012 (host port 8012 matches the
+# insights360 allocation — boond 8010, entra 8011, linkedin 8012 — and avoids
+# colliding with boondmanager-mock's own compose on 8000):
+#     curl http://localhost:8012/health
+#     curl -H "Authorization: Bearer mock-linkedin-token" \
+#          -H "Linkedin-Version: 202506" \
+#          -H "X-Restli-Protocol-Version: 2.0.0" \
+#          "http://localhost:8012/rest/posts?q=author&author=urn%3Ali%3Aorganization%3A40123456"
+#
+# `depends_on: condition: service_healthy` works on the consumer side: the
+# healthcheck ships INSIDE the image.
+services:
+  linkedin-mock:
+    # Local build by default; swap `build:` for the published image if preferred:
+    #   image: ghcr.io/littlebigcode/linkedin-mock:latest
+    build: .
+    image: linkedin-mock:0.1.0
+    ports:
+      - "8012:8000"
+    environment:
+      # Failure-injection and clock control plane — essential outside the process.
+      LINKEDIN_MOCK_ADMIN_ENABLED: "true"
+      # Page life advances one event per minute (incremental extraction).
+      # Set to "false" for a byte-stable dataset.
+      LINKEDIN_MOCK_EVOLUTION: "true"
+      LINKEDIN_MOCK_EVOLUTION_INTERVAL: "60"
+      # Dataset seed — the same seed produces the same world.
+      LINKEDIN_MOCK_SEED: "42"

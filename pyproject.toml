@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "LinkedIn Community Management API mock — container image and installable Python package"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Proprietary" }
+license = "Apache-2.0"
 
 # Volontairement minimales, comme boondmanager-mock : un mock n'a besoin que de
 # FastAPI et d'uvicorn. Chaque dépendance de plus est de la surface d'attaque

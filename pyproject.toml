@@ -6,9 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }
 
-# Volontairement minimales, comme boondmanager-mock : un mock n'a besoin que de
-# FastAPI et d'uvicorn. Chaque dépendance de plus est de la surface d'attaque
-# et des mégaoctets d'image pour rien.
+# Deliberately minimal, like boondmanager-mock: a mock only needs FastAPI
+# and uvicorn. Every extra dependency is attack surface and megabytes of
+# image for nothing.
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
@@ -36,7 +36,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PL", "ARG"]
-ignore = ["PLR0913", "PLR2004", "PLC0415"]   # les imports différés sont délibérés et structurels
+ignore = ["PLR0913", "PLR2004", "PLC0415"]   # deferred imports are deliberate and structural
 
 [tool.ruff.format]
 quote-style = "double"

@@ -1,9 +1,9 @@
-"""Point d'entrée conteneur : `python -m linkedin_mock`.
+"""Container entry point: `python -m linkedin_mock`.
 
-Volontairement minimal — pas de CLI, pas d'options. Tout se configure par
-variables d'environnement (cf. settings.py), parce que c'est le seul mécanisme
-qui marche identiquement en docker compose, en Deployment Kubernetes et en
-sidecar Tekton.
+Deliberately minimal — no CLI, no options. Everything is configured via
+environment variables (cf. settings.py), because that's the only mechanism
+that works identically in docker compose, in a Kubernetes Deployment and in a
+Tekton sidecar.
 """
 
 from __future__ import annotations

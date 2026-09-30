@@ -1,53 +1,53 @@
-"""L'évolution temporelle — le delta que l'extraction incrémentale doit voir.
+"""Time evolution — the delta an incremental extraction must see.
 
-Les tests font défiler le temps EXPLICITEMENT via /__admin/clock (l'intervalle
-d'évolution est à 3600 s dans le harnais : rien ne bouge tout seul). Chaque
-événement écrit dans le jour UTC de SON horodatage — une avance de quatre
-jours remplit quatre jours de buckets.
+Tests advance time EXPLICITLY via /__admin/clock (the evolution interval is
+3600 s in the harness: nothing moves on its own). Every event writes into
+the UTC day of ITS OWN timestamp — a four-day advance fills four days of
+buckets.
 """
 
 from __future__ import annotations
 
 import os
 
-from conftest import ADMIN, ORG_URN_ENC, H, tous_les_posts
+from conftest import ADMIN, ORG_URN_ENC, H, all_posts
 
 import linkedin_mock as mock
 
 URL_POSTS = f"/rest/posts?q=author&author={ORG_URN_ENC}"
-URL_PARTAGE = (
+URL_SHARES = (
     "/rest/organizationalEntityShareStatistics"
     f"?q=organizationalEntity&organizationalEntity={ORG_URN_ENC}"
 )
-URL_ABONNES = (
+URL_FOLLOWERS = (
     "/rest/organizationalEntityFollowerStatistics"
     f"?q=organizationalEntity&organizationalEntity={ORG_URN_ENC}"
 )
 
-JOUR_MS = 86_400_000
-#: 2026-07-14 minuit UTC — le lendemain du plafond de stats du jeu de base.
-LENDEMAIN_PLAFOND_MS = 1783987200000
-QUATRE_JOURS = 4 * 86_400
+DAY_MS = 86_400_000
+#: 2026-07-14 UTC midnight — the day after the base dataset's stats ceiling.
+DAY_AFTER_CEILING_MS = 1783987200000
+FOUR_DAYS = 4 * 86_400
 
 
-def _avancer(client, secondes: int) -> None:
-    r = client.post("/__admin/clock", json={"advance_seconds": secondes}, headers=ADMIN)
+def _advance(client, seconds: int) -> None:
+    r = client.post("/__admin/clock", json={"advance_seconds": seconds}, headers=ADMIN)
     assert r.status_code == 200
 
 
-def test_fige_sans_avance_d_horloge(client):
-    """Intervalle 3600 s et pas d'avance : deux lectures identiques à l'octet."""
-    a = client.get(URL_PARTAGE, headers=H).json()
-    b = client.get(URL_PARTAGE, headers=H).json()
+def test_frozen_without_clock_advance(client):
+    """3600 s interval and no advance: two reads identical byte for byte."""
+    a = client.get(URL_SHARES, headers=H).json()
+    b = client.get(URL_SHARES, headers=H).json()
     assert a == b
 
 
-def test_avance_remplit_les_jours_suivants(client):
-    """+4 jours : des buckets quotidiens APRÈS le plafond du jeu de base."""
-    _avancer(client, QUATRE_JOURS)
-    fin = LENDEMAIN_PLAFOND_MS + 6 * JOUR_MS
+def test_advance_fills_following_days(client):
+    """+4 days: daily buckets AFTER the base dataset's ceiling."""
+    _advance(client, FOUR_DAYS)
+    end = DAY_AFTER_CEILING_MS + 6 * DAY_MS
     r = client.get(
-        f"{URL_PARTAGE}&timeIntervals=(timeRange:(start:{LENDEMAIN_PLAFOND_MS},end:{fin}),"
+        f"{URL_SHARES}&timeIntervals=(timeRange:(start:{DAY_AFTER_CEILING_MS},end:{end}),"
         "timeGranularityType:DAY)",
         headers=H,
     )
@@ -56,13 +56,12 @@ def test_avance_remplit_les_jours_suivants(client):
     assert sum(e["totalShareStatistics"]["impressionCount"] for e in elements) > 0
 
 
-def test_gains_abonnes_apres_avance(client):
-    """La fenêtre J-2 s'ouvre au fil de l'avance : les gains des événements
-    deviennent visibles."""
-    _avancer(client, QUATRE_JOURS)
-    fin = LENDEMAIN_PLAFOND_MS + 10 * JOUR_MS
+def test_follower_gains_after_advance(client):
+    """The D-2 window opens as time advances: event gains become visible."""
+    _advance(client, FOUR_DAYS)
+    end = DAY_AFTER_CEILING_MS + 10 * DAY_MS
     r = client.get(
-        f"{URL_ABONNES}&timeIntervals=(timeRange:(start:{LENDEMAIN_PLAFOND_MS},end:{fin}),"
+        f"{URL_FOLLOWERS}&timeIntervals=(timeRange:(start:{DAY_AFTER_CEILING_MS},end:{end}),"
         "timeGranularityType:DAY)",
         headers=H,
     )
@@ -71,119 +70,119 @@ def test_gains_abonnes_apres_avance(client):
     assert sum(e["followerGains"]["organicFollowerGain"] for e in elements) > 0
 
 
-def test_nouveau_post_en_tete_du_finder(client):
-    avant = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]
-    _avancer(client, QUATRE_JOURS)
-    apres = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]
-    assert apres["lastModifiedAt"] > avant["lastModifiedAt"]
-    assert len(tous_les_posts(client)) > 72
+def test_new_post_at_head_of_finder(client):
+    before = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]
+    _advance(client, FOUR_DAYS)
+    after = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]
+    assert after["lastModifiedAt"] > before["lastModifiedAt"]
+    assert len(all_posts(client)) > 72
 
 
-def test_edition_re_surface_un_post_ancien(client):
-    """Un post VIEUX re-surfacé par édition : le geste que le curseur
-    lastModifiedAt doit revoir — l'analogue du _profil de boond."""
-    plafond_base = max(p["lastModifiedAt"] for p in mock.state.dataset["posts"])
-    _avancer(client, QUATRE_JOURS)
-    posts = tous_les_posts(client)
-    edites_anciens = [
+def test_edit_resurfaces_an_old_post(client):
+    """An OLD post resurfaced by an edit: the gesture the lastModifiedAt
+    cursor must catch — the analogue of boond's _profil."""
+    base_ceiling = max(p["lastModifiedAt"] for p in mock.state.dataset["posts"])
+    _advance(client, FOUR_DAYS)
+    posts = all_posts(client)
+    old_edited = [
         p
         for p in posts
-        if p["lastModifiedAt"] > plafond_base
-        and p["publishedAt"] < plafond_base - 30 * JOUR_MS
+        if p["lastModifiedAt"] > base_ceiling
+        and p["publishedAt"] < base_ceiling - 30 * DAY_MS
         and p["lifecycleStateInfo"]["isEditedByAuthor"]
     ]
-    assert edites_anciens, "au moins un post ancien doit avoir été édité"
+    assert old_edited, "at least one old post must have been edited"
 
 
-def test_somme_egale_vie_entiere_apres_evolution(client):
-    """L'invariant central SURVIT à l'évolution : lifetime dérivé des buckets."""
-    _avancer(client, QUATRE_JOURS)
-    posts = tous_les_posts(client)
-    nouveau = max(posts, key=lambda p: p["publishedAt"])
-    serie = mock.state.dataset["series_posts"][nouveau["id"]]
-    if not serie:
-        return  # publié dans la dernière heure virtuelle : pas encore de stats
-    r = client.get(f"{URL_PARTAGE}&shares=List({nouveau['id'].replace(':', '%3A')})", headers=H)
+def test_sum_equals_lifetime_after_evolution(client):
+    """The central invariant SURVIVES evolution: lifetime derived from buckets."""
+    _advance(client, FOUR_DAYS)
+    posts = all_posts(client)
+    newest = max(posts, key=lambda p: p["publishedAt"])
+    series = mock.state.dataset["posts_series"][newest["id"]]
+    if not series:
+        return  # published within the last virtual hour: no stats yet
+    r = client.get(f"{URL_SHARES}&shares=List({newest['id'].replace(':', '%3A')})", headers=H)
     element = r.json()["elements"][0]["totalShareStatistics"]
-    assert element["impressionCount"] == sum(b["impressionCount"] for b in serie.values())
+    assert element["impressionCount"] == sum(b["impressionCount"] for b in series.values())
 
 
-def test_chronologie_deterministe(client):
-    """reset → +1 jour → capture, deux fois : les mêmes octets."""
+def test_deterministic_timeline(client):
+    """reset -> +1 day -> capture, twice: the same bytes."""
 
     def capture() -> tuple:
         mock.state.reset()
-        _avancer(client, 86_400)
+        _advance(client, 86_400)
         page = client.get(f"{URL_POSTS}&count=5", headers=H).json()
-        fin = LENDEMAIN_PLAFOND_MS + 3 * JOUR_MS
-        jour = client.get(
-            f"{URL_PARTAGE}&timeIntervals=(timeRange:(start:{LENDEMAIN_PLAFOND_MS},end:{fin}),"
+        end = DAY_AFTER_CEILING_MS + 3 * DAY_MS
+        day = client.get(
+            f"{URL_SHARES}&timeIntervals=(timeRange:(start:{DAY_AFTER_CEILING_MS},end:{end}),"
             "timeGranularityType:DAY)",
             headers=H,
         ).json()
-        return page, jour
+        return page, day
 
     assert capture() == capture()
 
 
-def test_journal_expose_le_delta(client):
-    _avancer(client, 6 * 3600)
-    etat = client.get("/__admin/state", headers=ADMIN).json()
-    assert etat["evolution"]["applied"] >= 6
-    genres = {entree["kind"] for entree in etat["evolution"]["journal"]}
-    assert genres <= {"stats_jour", "nouveau_post", "gains_abonnes", "edition_post", "pic_viral"}
+def test_journal_exposes_the_delta(client):
+    _advance(client, 6 * 3600)
+    admin_state = client.get("/__admin/state", headers=ADMIN).json()
+    assert admin_state["evolution"]["applied"] >= 6
+    kinds = {entry["kind"] for entry in admin_state["evolution"]["journal"]}
+    assert kinds <= {"daily_stats", "new_post", "follower_gains", "post_edit", "viral_spike"}
 
 
-def test_desactivable_par_env(client):
+def test_disableable_via_env(client):
     os.environ["LINKEDIN_MOCK_EVOLUTION"] = "false"
     try:
         mock.settings.reload()
         mock.state.reset()
-        _avancer(client, QUATRE_JOURS)
-        etat = client.get("/__admin/state", headers=ADMIN).json()
-        assert etat["evolution"]["applied"] == 0
-        assert len(tous_les_posts(client)) == 72
+        _advance(client, FOUR_DAYS)
+        admin_state = client.get("/__admin/state", headers=ADMIN).json()
+        assert admin_state["evolution"]["applied"] == 0
+        assert len(all_posts(client)) == 72
     finally:
         del os.environ["LINKEDIN_MOCK_EVOLUTION"]
         mock.settings.reload()
         mock.state.reset()
 
 
-def test_reset_rearme_la_chronologie(client):
-    _avancer(client, QUATRE_JOURS)
+def test_reset_rearms_the_timeline(client):
+    _advance(client, FOUR_DAYS)
     assert client.get("/__admin/state", headers=ADMIN).json()["evolution"]["applied"] > 0
     client.post("/__admin/reset", headers=ADMIN)
-    etat = client.get("/__admin/state", headers=ADMIN).json()
-    assert etat["evolution"]["applied"] == 0
-    assert etat["totals"]["posts"] == 72
+    admin_state = client.get("/__admin/state", headers=ADMIN).json()
+    assert admin_state["evolution"]["applied"] == 0
+    assert admin_state["totals"]["posts"] == 72
 
 
-def test_mutate_pousse_le_post_en_tete(client):
-    cible = mock.state.dataset["posts"][3]["id"]
+def test_mutate_pushes_post_to_head(client):
+    target = mock.state.dataset["posts"][3]["id"]
     r = client.post(
         "/__admin/mutate",
-        json={"post_id": cible, "commentary": "Contenu corrigé après coup."},
+        json={"post_id": target, "commentary": "Content corrected after the fact."},
         headers=ADMIN,
     )
     assert r.status_code == 200
-    tete = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]
-    assert tete["id"] == cible
-    assert tete["commentary"] == "Contenu corrigé après coup."
-    assert tete["lifecycleStateInfo"]["isEditedByAuthor"] is True
+    head = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]
+    assert head["id"] == target
+    assert head["commentary"] == "Content corrected after the fact."
+    assert head["lifecycleStateInfo"]["isEditedByAuthor"] is True
 
 
-def test_delete_sort_du_finder_mais_pas_de_l_histoire(client):
-    """Le régime réel : le post supprimé disparaît du listage et du per-share,
-    mais les agrégats organisation gardent son passé."""
-    avant = client.get(URL_PARTAGE, headers=H).json()["elements"][0]["totalShareStatistics"]
-    cible = mock.state.dataset["posts"][0]["id"]
-    client.post("/__admin/delete", json={"post_id": cible}, headers=ADMIN)
+def test_delete_leaves_finder_but_not_history(client):
+    """The real-world regime: a deleted post disappears from the listing and
+    from per-share, but org-wide aggregates keep its past."""
+    before = client.get(URL_SHARES, headers=H).json()["elements"][0]["totalShareStatistics"]
+    target = mock.state.dataset["posts"][0]["id"]
+    client.post("/__admin/delete", json={"post_id": target}, headers=ADMIN)
 
-    assert len(tous_les_posts(client)) == 71
-    per_share = client.get(f"{URL_PARTAGE}&shares=List({cible.replace(':', '%3A')})", headers=H)
+    assert len(all_posts(client)) == 71
+    per_share = client.get(f"{URL_SHARES}&shares=List({target.replace(':', '%3A')})", headers=H)
     if not per_share.json()["elements"]:
-        pass  # share : omis, comme attendu
-    else:  # la cible était un ugcPost : la famille shares ne l'aurait jamais servi
-        raise AssertionError("le post supprimé ne doit plus être servi en per-share")
-    apres = client.get(URL_PARTAGE, headers=H).json()["elements"][0]["totalShareStatistics"]
-    assert apres["impressionCount"] == avant["impressionCount"]
+        pass  # share: omitted, as expected
+    else:  # the target was a ugcPost: the shares family would never have served it
+        raise AssertionError("the deleted post must no longer be served per-share")
+    after = client.get(URL_SHARES, headers=H).json()["elements"][0]["totalShareStatistics"]
+    assert after["impressionCount"] == before["impressionCount"]

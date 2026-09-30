@@ -1,9 +1,9 @@
-"""Les entités du dialecte LinkedIn — formes relevées sur la doc officielle.
+"""The entities of the LinkedIn dialect — shapes recorded from the official doc.
 
-Chaque modèle suit les exemples des pages Community Management (Posts API,
-share/follower/page statistics, organization lookup, networkSizes), monikers
-li-lms-2026-06/07. Les champs plausibles-mais-non-attestés portent le marqueur
-`x-linkedin-confidence` (cf. models/common.py).
+Every model follows the examples from the Community Management pages (Posts
+API, share/follower/page statistics, organization lookup, networkSizes),
+monikers li-lms-2026-06/07. Plausible-but-unattested fields carry the
+`x-linkedin-confidence` marker (cf. models/common.py).
 """
 
 from __future__ import annotations
@@ -12,99 +12,99 @@ from typing import Any
 
 from pydantic import Field
 
-from .common import Permissif, unverified
+from .common import Permissive, unverified
 
 # ── Posts ────────────────────────────────────────────────────────────────────
 
 
-class Distribution(Permissif):
+class Distribution(Permissive):
     feedDistribution: str = Field(description="MAIN_FEED | NONE")
     thirdPartyDistributionChannels: list[str] = Field(default_factory=list)
 
 
-class InfoCycleDeVie(Permissif):
+class LifecycleInfo(Permissive):
     isEditedByAuthor: bool = False
 
 
-class ContexteRepartage(Permissif):
-    """Présent sur les repartages : le post relayé (`parent`) et l'origine."""
+class ReshareContext(Permissive):
+    """Present on reshares: the relayed post (`parent`) and its origin."""
 
     parent: str
     root: str | None = None
 
 
-class ContenuMedia(Permissif):
+class MediaContent(Permissive):
     id: str = Field(description="urn:li:video:… | urn:li:image:… | urn:li:document:…")
     title: str | None = None
 
 
-class ContenuArticle(Permissif):
+class ArticleContent(Permissive):
     source: str
     title: str | None = None
     description: str | None = None
 
 
-class ContenuPost(Permissif):
-    """Le bloc `content` — `{}` sur certains posts texte, absent sur d'autres."""
+class PostContent(Permissive):
+    """The `content` block — `{}` on some text posts, absent on others."""
 
-    media: ContenuMedia | None = None
-    article: ContenuArticle | None = None
+    media: MediaContent | None = None
+    article: ArticleContent | None = None
 
 
-class Post(Permissif):
-    id: str = Field(description="urn:li:share:{19 chiffres} | urn:li:ugcPost:{19 chiffres}")
+class Post(Permissive):
+    id: str = Field(description="urn:li:share:{19 digits} | urn:li:ugcPost:{19 digits}")
     author: str = Field(description="urn:li:organization:{id}")
     commentary: str = Field(
         description=(
-            "Texte du post. Hashtags en gabarit little-format "
-            "`{hashtag|\\#|WeAreHiring}`, mentions `@[Nom](urn:li:organization:…)`."
+            "Post text. Hashtags as little-format template "
+            "`{hashtag|\\#|WeAreHiring}`, mentions `@[Name](urn:li:organization:…)`."
         )
     )
-    createdAt: int = Field(description="Epoch millisecondes.")
-    publishedAt: int = Field(description="Epoch millisecondes.")
-    lastModifiedAt: int = Field(description="Epoch millisecondes — bougé par une édition.")
+    createdAt: int = Field(description="Epoch milliseconds.")
+    publishedAt: int = Field(description="Epoch milliseconds.")
+    lastModifiedAt: int = Field(description="Epoch milliseconds — moved by an edit.")
     lifecycleState: str = Field(
         description="PUBLISHED | DRAFT | PUBLISH_REQUESTED | PUBLISH_FAILED"
     )
-    lifecycleStateInfo: InfoCycleDeVie
+    lifecycleStateInfo: LifecycleInfo
     visibility: str = Field(description="PUBLIC | CONNECTIONS | LOGGED_IN")
     distribution: Distribution
     isReshareDisabledByAuthor: bool = False
-    content: ContenuPost | None = Field(
+    content: PostContent | None = Field(
         default=None,
         json_schema_extra=unverified(
-            "émis `{}` sur certains éléments du finder officiel et absent sur "
-            "d'autres — la règle d'émission n'est pas documentée ; le mock sert "
-            "les deux variantes"
+            "emitted as `{}` on some elements of the official finder and "
+            "absent on others — the emission rule isn't documented; the mock "
+            "serves both variants"
         ),
     )
-    reshareContext: ContexteRepartage | None = None
+    reshareContext: ReshareContext | None = None
 
 
-class LotPosts(Permissif):
-    """Réponse BATCH_GET `?ids=List(...)` — results/statuses/errors par URN."""
+class PostsBatch(Permissive):
+    """BATCH_GET `?ids=List(...)` response — results/statuses/errors per URN."""
 
     results: dict[str, Post]
     statuses: dict[str, Any] = Field(default_factory=dict)
     errors: dict[str, Any] = Field(default_factory=dict)
 
 
-# ── Statistiques de partage ──────────────────────────────────────────────────
+# ── Share statistics ─────────────────────────────────────────────────────────
 
 
-class PlageTemporelle(Permissif):
-    start: int = Field(description="Epoch ms, minuit UTC, inclusif.")
-    end: int = Field(description="Epoch ms, minuit UTC, exclusif.")
+class TimeRange(Permissive):
+    start: int = Field(description="Epoch ms, midnight UTC, inclusive.")
+    end: int = Field(description="Epoch ms, midnight UTC, exclusive.")
 
 
-class StatistiquesPartage(Permissif):
-    """`totalShareStatistics` — engagement = (clics + réactions + commentaires
-    + partages) / impressions, formule vérifiée numériquement sur les exemples
-    officiels."""
+class ShareStatistics(Permissive):
+    """`totalShareStatistics` — engagement = (clicks + reactions + comments
+    + shares) / impressions, formula verified numerically against the
+    official examples."""
 
     uniqueImpressionsCount: int | None = Field(
         default=None,
-        description="Présent sur les agrégats vie-entière ; OMIS des buckets temporels.",
+        description="Present on lifetime aggregates; OMITTED from time buckets.",
     )
     clickCount: int
     engagement: float
@@ -114,101 +114,101 @@ class StatistiquesPartage(Permissif):
     impressionCount: int
 
 
-class ElementStatsPartage(Permissif):
-    timeRange: PlageTemporelle | None = None
-    totalShareStatistics: StatistiquesPartage
-    share: str | None = Field(default=None, description="Présent en mode per-share (URN share).")
-    ugcPost: str | None = Field(default=None, description="Présent en mode per-ugcPost.")
+class ShareStatsElement(Permissive):
+    timeRange: TimeRange | None = None
+    totalShareStatistics: ShareStatistics
+    share: str | None = Field(default=None, description="Present in per-share mode (share URN).")
+    ugcPost: str | None = Field(default=None, description="Present in per-ugcPost mode.")
     organizationalEntity: str
 
 
-# ── Abonnés ──────────────────────────────────────────────────────────────────
+# ── Followers ────────────────────────────────────────────────────────────────
 
 
-class CompteursAbonnes(Permissif):
-    """Les démographies roulent le payant dans l'organique — note officielle :
-    « Do not refer to the paidFollowerCount field »."""
+class FollowerCounts(Permissive):
+    """Demographics roll the paid count into the organic one — official note:
+    "Do not refer to the paidFollowerCount field"."""
 
     organicFollowerCount: int
     paidFollowerCount: int
 
 
-class FacetteAbonnes(Permissif):
-    followerCounts: CompteursAbonnes
+class FollowerFacet(Permissive):
+    followerCounts: FollowerCounts
     associationType: str | None = None
     geo: str | None = Field(
         default=None,
         json_schema_extra=unverified(
-            "les entiers des URN urn:li:geo:… sont plausibles, pas attestés segment par segment"
+            "the urn:li:geo:… integers are plausible, not attested segment by segment"
         ),
     )
     function: str | None = Field(
         default=None,
-        json_schema_extra=unverified("sémantique des entiers urn:li:function:… plausible"),
+        json_schema_extra=unverified("semantics of the urn:li:function:… integers are plausible"),
     )
     industry: str | None = Field(
         default=None,
-        json_schema_extra=unverified("sémantique des entiers urn:li:industry:… plausible"),
+        json_schema_extra=unverified("semantics of the urn:li:industry:… integers are plausible"),
     )
     seniority: str | None = Field(
         default=None,
-        json_schema_extra=unverified("sémantique des entiers urn:li:seniority:… plausible"),
+        json_schema_extra=unverified("semantics of the urn:li:seniority:… integers are plausible"),
     )
     staffCountRange: str | None = None
 
 
-class GainsAbonnes(Permissif):
-    organicFollowerGain: int = Field(description="Gain NET — peut être négatif.")
+class FollowerGains(Permissive):
+    organicFollowerGain: int = Field(description="NET gain — can be negative.")
     paidFollowerGain: int
 
 
-class ElementStatsAbonnes(Permissif):
-    """Vie entière : les 7 familles de facettes. Time-bound : `followerGains`
-    par bucket — les facettes ne sont pas servies en time-bound."""
+class FollowerStatsElement(Permissive):
+    """Lifetime: the 7 facet families. Time-bound: `followerGains` per
+    bucket — facets aren't served in time-bound mode."""
 
-    timeRange: PlageTemporelle | None = None
-    followerGains: GainsAbonnes | None = None
-    followerCountsByAssociationType: list[FacetteAbonnes] | None = None
-    followerCountsByGeoCountry: list[FacetteAbonnes] | None = None
-    followerCountsByFunction: list[FacetteAbonnes] | None = None
-    followerCountsByIndustry: list[FacetteAbonnes] | None = None
-    followerCountsByGeo: list[FacetteAbonnes] | None = None
-    followerCountsBySeniority: list[FacetteAbonnes] | None = None
-    followerCountsByStaffCountRange: list[FacetteAbonnes] | None = None
+    timeRange: TimeRange | None = None
+    followerGains: FollowerGains | None = None
+    followerCountsByAssociationType: list[FollowerFacet] | None = None
+    followerCountsByGeoCountry: list[FollowerFacet] | None = None
+    followerCountsByFunction: list[FollowerFacet] | None = None
+    followerCountsByIndustry: list[FollowerFacet] | None = None
+    followerCountsByGeo: list[FollowerFacet] | None = None
+    followerCountsBySeniority: list[FollowerFacet] | None = None
+    followerCountsByStaffCountRange: list[FollowerFacet] | None = None
     organizationalEntity: str
 
 
-# ── Vues de page ─────────────────────────────────────────────────────────────
+# ── Page views ───────────────────────────────────────────────────────────────
 
 
-class VuesPage(Permissif):
+class PageViews(Permissive):
     pageViews: int
     uniquePageViews: int | None = Field(
         default=None,
         json_schema_extra=unverified(
-            "présent dans les buckets temporels des exemples officiels, mais "
-            "le sous-ensemble exact de familles qui le porte est incohérent "
-            "d'un exemple à l'autre"
+            "present in the time buckets of the official examples, but the "
+            "exact subset of families that carries it is inconsistent from "
+            "one example to another"
         ),
     )
 
 
-class ClicsPage(Permissif):
+class PageClicks(Permissive):
     desktopCustomButtonClickCounts: list[dict[str, Any]] = Field(default_factory=list)
     mobileCustomButtonClickCounts: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class StatistiquesPage(Permissif):
-    """`totalPageStatistics` — vie entière : 15 compteurs de vues, arithmétique
-    vérifiée (all = desktop + mobile = overview + careers ; careers = jobs +
-    lifeAt). Time-bound : jeu de familles réduit, avec uniquePageViews."""
+class PageStatistics(Permissive):
+    """`totalPageStatistics` — lifetime: 15 view counters, verified
+    arithmetic (all = desktop + mobile = overview + careers; careers = jobs +
+    lifeAt). Time-bound: reduced set of families, with uniquePageViews."""
 
-    clicks: ClicsPage | None = None
-    views: dict[str, VuesPage]
+    clicks: PageClicks | None = None
+    views: dict[str, PageViews]
 
 
-class FacettePage(Permissif):
-    pageStatistics: dict[str, dict[str, VuesPage]]
+class PageFacet(Permissive):
+    pageStatistics: dict[str, dict[str, PageViews]]
     geo: str | None = None
     function: str | None = None
     industryV2: str | None = None
@@ -216,39 +216,39 @@ class FacettePage(Permissif):
     staffCountRange: str | None = None
 
 
-class ElementStatsPage(Permissif):
-    timeRange: PlageTemporelle | None = None
-    pageStatisticsByGeoCountry: list[FacettePage] | None = None
-    pageStatisticsByFunction: list[FacettePage] | None = None
-    pageStatisticsByIndustryV2: list[FacettePage] | None = None
-    pageStatisticsByGeo: list[FacettePage] | None = None
-    pageStatisticsBySeniority: list[FacettePage] | None = None
-    pageStatisticsByStaffCountRange: list[FacettePage] | None = None
-    totalPageStatistics: StatistiquesPage
+class PageStatsElement(Permissive):
+    timeRange: TimeRange | None = None
+    pageStatisticsByGeoCountry: list[PageFacet] | None = None
+    pageStatisticsByFunction: list[PageFacet] | None = None
+    pageStatisticsByIndustryV2: list[PageFacet] | None = None
+    pageStatisticsByGeo: list[PageFacet] | None = None
+    pageStatisticsBySeniority: list[PageFacet] | None = None
+    pageStatisticsByStaffCountRange: list[PageFacet] | None = None
+    totalPageStatistics: PageStatistics
     organization: str
 
 
-# ── Organisation & réseau ────────────────────────────────────────────────────
+# ── Organization & network ───────────────────────────────────────────────────
 
 
-class LocaleOrganisation(Permissif):
+class OrganizationLocale(Permissive):
     country: str
     language: str
 
 
-class NomLocalise(Permissif):
+class LocalizedName(Permissive):
     localized: dict[str, str]
-    preferredLocale: LocaleOrganisation
+    preferredLocale: OrganizationLocale
 
 
-class Organisation(Permissif):
-    """`GET /rest/organizations/{id}` — entité plate Rest.li ; `id` est un
-    NOMBRE et `$URN` est présent (relevé officiel)."""
+class Organization(Permissive):
+    """`GET /rest/organizations/{id}` — flat Rest.li entity; `id` is a
+    NUMBER and `$URN` is present (recorded from the official trace)."""
 
     vanityName: str
     localizedName: str
-    name: NomLocalise
-    defaultLocale: LocaleOrganisation
+    name: LocalizedName
+    defaultLocale: OrganizationLocale
     organizationType: str
     staffCountRange: str
     industries: list[str] = Field(default_factory=list)
@@ -267,16 +267,16 @@ class Organisation(Permissif):
     urn: str = Field(alias="$URN", serialization_alias="$URN")
 
 
-class LotOrganisations(Permissif):
-    """Réponse batch `?ids=List(...)` — `statuses` porte le code PAR id."""
+class OrganizationsBatch(Permissive):
+    """Batch response `?ids=List(...)` — `statuses` carries the code PER id."""
 
-    results: dict[str, Organisation]
+    results: dict[str, Organization]
     statuses: dict[str, int] = Field(default_factory=dict)
     errors: dict[str, Any] = Field(default_factory=dict)
 
 
-class TailleReseau(Permissif):
+class NetworkSize(Permissive):
     """`GET /rest/networkSizes/{urn}?edgeType=COMPANY_FOLLOWED_BY_MEMBER` —
-    LE total d'abonnés (les follower statistics n'ont plus de total)."""
+    THE follower total (follower statistics no longer carry a total)."""
 
     firstDegreeSize: int

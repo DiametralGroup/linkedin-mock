@@ -1,41 +1,41 @@
-"""Ré-exports des modèles — l'import unique de app.py."""
+"""Model re-exports — app.py's single import."""
 
 from __future__ import annotations
 
 from .common import (
-    REPONSES_ERREUR,
-    EnveloppeElements,
-    ErreurLinkedIn,
+    ERROR_RESPONSES,
+    ElementsEnvelope,
+    LinkedInError,
     Paging,
-    Permissif,
+    Permissive,
     invented,
     unverified,
 )
 from .entities import (
-    ElementStatsAbonnes,
-    ElementStatsPage,
-    ElementStatsPartage,
-    LotOrganisations,
-    LotPosts,
-    Organisation,
+    FollowerStatsElement,
+    NetworkSize,
+    Organization,
+    OrganizationsBatch,
+    PageStatsElement,
     Post,
-    TailleReseau,
+    PostsBatch,
+    ShareStatsElement,
 )
 
 __all__ = [
-    "REPONSES_ERREUR",
-    "ElementStatsAbonnes",
-    "ElementStatsPage",
-    "ElementStatsPartage",
-    "EnveloppeElements",
-    "ErreurLinkedIn",
-    "LotOrganisations",
-    "LotPosts",
-    "Organisation",
+    "ERROR_RESPONSES",
+    "ElementsEnvelope",
+    "FollowerStatsElement",
+    "LinkedInError",
+    "NetworkSize",
+    "Organization",
+    "OrganizationsBatch",
+    "PageStatsElement",
     "Paging",
-    "Permissif",
+    "Permissive",
     "Post",
-    "TailleReseau",
+    "PostsBatch",
+    "ShareStatsElement",
     "invented",
     "unverified",
 ]

@@ -1,13 +1,12 @@
-"""Harnais de tests.
+"""Test harness.
 
-Deux réglages d'environnement, posés AVANT l'import du paquet (la
-configuration est lue à l'import) :
+Two environment settings, set BEFORE the package import (config is read at
+import time):
 
-  • le plan de contrôle `/__admin` est monté — le montage est conditionnel ;
-  • l'intervalle d'évolution passe à 3600 s : aucun événement ne se déclenche
-    au fil de l'horloge murale pendant la suite, même sur une CI lente. Les
-    tests d'évolution font défiler le temps EXPLICITEMENT via /__admin/clock —
-    c'est ce qui les rend déterministes.
+  • the `/__admin` control plane is mounted — the mount is conditional;
+  • the evolution interval is set to 3600 s: no event fires on the wall clock
+    during the suite, even on a slow CI. Evolution tests advance time
+    EXPLICITLY via /__admin/clock — that's what makes them deterministic.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ import linkedin_mock as mock
 ORG_URN = "urn:li:organization:40123456"
 ORG_URN_ENC = "urn%3Ali%3Aorganization%3A40123456"
 
-#: Les trois en-têtes d'une requête bien formée — le trousseau par défaut.
+#: The three headers of a well-formed request — the default keyring.
 H = {
     "Authorization": "Bearer mock-linkedin-token",
     "Linkedin-Version": "202506",
@@ -36,8 +35,8 @@ ADMIN = {"X-Mock-Admin-Token": "mock-admin-token"}
 
 @pytest.fixture()
 def client():
-    """Un client sur un état REMIS À NEUF — avant ET après, pour qu'un test ne
-    lègue ni règle d'injection ni événement d'évolution au suivant."""
+    """A client on a FRESHLY RESET state — before AND after, so no test hands
+    down an injection rule or an evolution event to the next one."""
     c = TestClient(mock.app)
     mock.state.reset()
     yield c
@@ -45,13 +44,13 @@ def client():
 
 
 @pytest.fixture()
-def linkedin_state(client):  # noqa: ARG001 — la fixture chaîne le reset
-    """L'état mutable du mock, pour les tests qui inspectent le dataset."""
+def linkedin_state(client):  # noqa: ARG001 — the fixture chains the reset
+    """The mock's mutable state, for tests that inspect the dataset."""
     return mock.state
 
 
-def tous_les_posts(client) -> list[dict]:
-    """Le parcours de pagination complet du finder — l'outil des journeys."""
+def all_posts(client) -> list[dict]:
+    """The full paginated walk of the finder — the journeys' workhorse."""
     posts: list[dict] = []
     start = 0
     while True:

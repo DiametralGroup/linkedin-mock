@@ -1,20 +1,19 @@
-"""Sonde structurelle GET-only contre la VRAIE API LinkedIn.
+"""Structural GET-only probe against the REAL LinkedIn API.
 
-Objectif : trancher les entrées de docs/UNVERIFIED-FIELDS.md — pas extraire
-des données. Chaque sonde fait UN GET, relève le statut et la FORME (clés,
-types), et la confronte à ce que le mock sert. Aucune écriture, aucune
-mutation, aucun POST.
+Goal: settle the entries in docs/UNVERIFIED-FIELDS.md — not extract data.
+Each probe fires ONE GET, records the status and the SHAPE (keys, types),
+and confronts it with what the mock serves. No write, no mutation, no POST.
 
-Usage :
+Usage:
 
     LINKEDIN_REAL_TOKEN=... LINKEDIN_REAL_ORG_ID=12345 \\
         uv run python scripts/compare_real.py [--version 202506]
 
-La PREMIÈRE sonde est la seule qui engage une décision d'architecture :
-`shares=List(...)` + `timeIntervals` combinés — la doc dit « not supported »,
-le connecteur insights360 a choisi les snapshots quotidiens en conséquence.
-Si la vraie API sert la combinaison, ouvrir une issue : le connecteur peut
-gagner un backfill par post.
+The FIRST probe is the only one that commits an architecture decision:
+`shares=List(...)` + `timeIntervals` combined — the docs say "not supported",
+so the insights360 connector chose daily snapshots as a result. If the real
+API serves the combination, open an issue: the connector could gain a
+per-post backfill.
 """
 
 from __future__ import annotations
@@ -27,101 +26,101 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-VRAI_HOTE = "https://api.linkedin.com/rest"
+REAL_HOST = "https://api.linkedin.com/rest"
 
 
-def _forme(noeud: Any, profondeur: int = 0) -> Any:
-    """La forme d'un JSON : clés et types, valeurs élaguées."""
-    if profondeur > 4:
+def _shape(node: Any, depth: int = 0) -> Any:
+    """The shape of a JSON value: keys and types, values pruned."""
+    if depth > 4:
         return "…"
-    if isinstance(noeud, dict):
-        return {cle: _forme(valeur, profondeur + 1) for cle, valeur in sorted(noeud.items())}
-    if isinstance(noeud, list):
-        return [_forme(noeud[0], profondeur + 1)] if noeud else []
-    return type(noeud).__name__
+    if isinstance(node, dict):
+        return {key: _shape(value, depth + 1) for key, value in sorted(node.items())}
+    if isinstance(node, list):
+        return [_shape(node[0], depth + 1)] if node else []
+    return type(node).__name__
 
 
-def _get(url: str, jeton: str, version: str) -> tuple[int, Any]:
-    requete = urllib.request.Request(
+def _get(url: str, token: str, version: str) -> tuple[int, Any]:
+    request = urllib.request.Request(
         url,
         headers={
-            "Authorization": f"Bearer {jeton}",
+            "Authorization": f"Bearer {token}",
             "Linkedin-Version": version,
             "X-Restli-Protocol-Version": "2.0.0",
         },
     )
     try:
-        with urllib.request.urlopen(requete, timeout=30) as reponse:
-            return reponse.status, json.loads(reponse.read().decode())
-    except urllib.error.HTTPError as erreur:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, json.loads(response.read().decode())
+    except urllib.error.HTTPError as error:
         try:
-            corps = json.loads(erreur.read().decode())
+            body = json.loads(error.read().decode())
         except Exception:
-            corps = {"brut": "corps illisible"}
-        return erreur.code, corps
-    except urllib.error.URLError as erreur:
-        return 0, {"transport": str(erreur)}
+            body = {"raw": "unreadable body"}
+        return error.code, body
+    except urllib.error.URLError as error:
+        return 0, {"transport": str(error)}
 
 
-def _sondes(org: str, urn_share: str | None) -> list[tuple[str, str]]:
+def _probes(org: str, urn_share: str | None) -> list[tuple[str, str]]:
     urn_org = f"urn%3Ali%3Aorganization%3A{org}"
-    fenetre = (
+    window = (
         "timeIntervals=(timeRange:(start:1767225600000,end:1767830400000),timeGranularityType:DAY)"
     )
-    base_partage = (
-        f"{VRAI_HOTE}/organizationalEntityShareStatistics"
+    base_share = (
+        f"{REAL_HOST}/organizationalEntityShareStatistics"
         f"?q=organizationalEntity&organizationalEntity={urn_org}"
     )
-    sondes = [
-        # LA sonde prioritaire — cf. docstring.
+    probes = [
+        # THE priority probe — see docstring.
         (
-            "shares+timeIntervals combinés (PRIORITAIRE)",
-            f"{base_partage}&shares=List({urn_share})&{fenetre}"
+            "combined shares+timeIntervals (PRIORITY)",
+            f"{base_share}&shares=List({urn_share})&{window}"
             if urn_share
-            else f"{base_partage}&shares=List(urn%3Ali%3Ashare%3A0)&{fenetre}",
+            else f"{base_share}&shares=List(urn%3Ali%3Ashare%3A0)&{window}",
         ),
-        ("organization lookup", f"{VRAI_HOTE}/organizations/{org}"),
+        ("organization lookup", f"{REAL_HOST}/organizations/{org}"),
         (
             "networkSizes",
-            f"{VRAI_HOTE}/networkSizes/{urn_org}?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
+            f"{REAL_HOST}/networkSizes/{urn_org}?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
         ),
-        ("posts finder page 1", f"{VRAI_HOTE}/posts?q=author&author={urn_org}&count=3"),
-        ("posts finder SANS q", f"{VRAI_HOTE}/posts?author={urn_org}"),
-        ("posts count>100", f"{VRAI_HOTE}/posts?q=author&author={urn_org}&count=101"),
-        ("share stats vie entière", base_partage),
-        ("share stats daily", f"{base_partage}&{fenetre}"),
+        ("posts finder page 1", f"{REAL_HOST}/posts?q=author&author={urn_org}&count=3"),
+        ("posts finder WITHOUT q", f"{REAL_HOST}/posts?author={urn_org}"),
+        ("posts count>100", f"{REAL_HOST}/posts?q=author&author={urn_org}&count=101"),
+        ("share stats full lifetime", base_share),
+        ("share stats daily", f"{base_share}&{window}"),
         (
-            "follower stats vie entière",
-            f"{VRAI_HOTE}/organizationalEntityFollowerStatistics"
+            "follower stats full lifetime",
+            f"{REAL_HOST}/organizationalEntityFollowerStatistics"
             f"?q=organizationalEntity&organizationalEntity={urn_org}",
         ),
         (
-            "page stats vie entière",
-            f"{VRAI_HOTE}/organizationPageStatistics?q=organization&organization={urn_org}",
+            "page stats full lifetime",
+            f"{REAL_HOST}/organizationPageStatistics?q=organization&organization={urn_org}",
         ),
         (
-            "page stats MAUVAIS finder (organizationalEntity)",
-            f"{VRAI_HOTE}/organizationPageStatistics"
+            "page stats WRONG finder (organizationalEntity)",
+            f"{REAL_HOST}/organizationPageStatistics"
             f"?q=organizationalEntity&organizationalEntity={urn_org}",
         ),
-        ("route inconnue", f"{VRAI_HOTE}/nimporte"),
-        ("organisation étrangère (403 attendu)", f"{VRAI_HOTE}/organizations/1337"),
+        ("unknown route", f"{REAL_HOST}/nimporte"),
+        ("foreign organization (403 expected)", f"{REAL_HOST}/organizations/1337"),
     ]
-    return sondes
+    return probes
 
 
-def _sondes_sans_jeton(org: str) -> list[tuple[str, str, dict[str, str]]]:
-    """Les précédences : sans jeton, sans version — qui gagne ?"""
+def _probes_without_token(org: str) -> list[tuple[str, str, dict[str, str]]]:
+    """The precedences: no token, no version — which wins?"""
     urn_org = f"urn%3Ali%3Aorganization%3A{org}"
-    url = f"{VRAI_HOTE}/posts?q=author&author={urn_org}"
+    url = f"{REAL_HOST}/posts?q=author&author={urn_org}"
     return [
-        ("ni jeton ni version (précédence auth/version)", url, {}),
-        ("jeton sans version (VERSION_MISSING attendu)", url, {"Authorization": "Bearer …"}),
+        ("neither token nor version (auth/version precedence)", url, {}),
+        ("token without version (VERSION_MISSING expected)", url, {"Authorization": "Bearer …"}),
         (
-            "jeton forgé (corps 401 invalid)",
+            "forged token (401 invalid body)",
             url,
             {
-                "Authorization": "Bearer jeton-forge-pour-la-sonde",
+                "Authorization": "Bearer forged-token-for-the-probe",
                 "Linkedin-Version": "202506",
                 "X-Restli-Protocol-Version": "2.0.0",
             },
@@ -130,41 +129,41 @@ def _sondes_sans_jeton(org: str) -> list[tuple[str, str, dict[str, str]]]:
 
 
 def main() -> int:
-    analyseur = argparse.ArgumentParser(description=__doc__)
-    analyseur.add_argument("--version", default="202506", help="Linkedin-Version à envoyer")
-    analyseur.add_argument(
-        "--share-urn", default=None, help="URN share réel (encodé) pour la sonde prioritaire"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", default="202506", help="Linkedin-Version to send")
+    parser.add_argument(
+        "--share-urn", default=None, help="Real share URN (encoded) for the priority probe"
     )
-    arguments = analyseur.parse_args()
+    args = parser.parse_args()
 
-    jeton = os.environ.get("LINKEDIN_REAL_TOKEN", "")
+    token = os.environ.get("LINKEDIN_REAL_TOKEN", "")
     org = os.environ.get("LINKEDIN_REAL_ORG_ID", "")
-    if not jeton or not org:
-        print("LINKEDIN_REAL_TOKEN et LINKEDIN_REAL_ORG_ID sont requis.", file=sys.stderr)
+    if not token or not org:
+        print("LINKEDIN_REAL_TOKEN and LINKEDIN_REAL_ORG_ID are required.", file=sys.stderr)
         return 2
 
-    print(f"# Sondes structurelles — {VRAI_HOTE}, version {arguments.version}\n")
-    for nom, url in _sondes(org, arguments.share_urn):
-        statut, corps = _get(url, jeton, arguments.version)
-        print(f"## {nom}\n   GET {url}\n   → HTTP {statut}")
-        print("   " + json.dumps(_forme(corps), ensure_ascii=False)[:600] + "\n")
+    print(f"# Structural probes — {REAL_HOST}, version {args.version}\n")
+    for name, url in _probes(org, args.share_urn):
+        status, body = _get(url, token, args.version)
+        print(f"## {name}\n   GET {url}\n   → HTTP {status}")
+        print("   " + json.dumps(_shape(body), ensure_ascii=False)[:600] + "\n")
 
-    print("# Précédences d'erreurs (requêtes volontairement malformées)\n")
-    for nom, url, en_tetes in _sondes_sans_jeton(org):
-        requete = urllib.request.Request(url, headers=en_tetes)
+    print("# Error precedences (deliberately malformed requests)\n")
+    for name, url, headers in _probes_without_token(org):
+        request = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(requete, timeout=30) as reponse:
-                statut, corps = reponse.status, json.loads(reponse.read().decode())
-        except urllib.error.HTTPError as erreur:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                status, body = response.status, json.loads(response.read().decode())
+        except urllib.error.HTTPError as error:
             try:
-                statut, corps = erreur.code, json.loads(erreur.read().decode())
+                status, body = error.code, json.loads(error.read().decode())
             except Exception:
-                statut, corps = erreur.code, {}
-        print(f"## {nom}\n   → HTTP {statut} {json.dumps(corps, ensure_ascii=False)[:300]}\n")
+                status, body = error.code, {}
+        print(f"## {name}\n   → HTTP {status} {json.dumps(body, ensure_ascii=False)[:300]}\n")
 
     print(
-        "Confronter chaque relevé à docs/UNVERIFIED-FIELDS.md, corriger les\n"
-        "constantes (errors.py, models/) et RÉGÉNÉRER le contrat (make contract)."
+        "Confront each reading against docs/UNVERIFIED-FIELDS.md, fix the\n"
+        "constants (errors.py, models/) and REGENERATE the contract (make contract)."
     )
     return 0
 

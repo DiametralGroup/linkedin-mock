@@ -1,15 +1,15 @@
-"""Le contrat committé dit-il la vérité ?
+"""Does the committed contract tell the truth?
 
-Deux propriétés, et la seconde est celle qui compte vraiment.
+Two properties, and the second is the one that really matters.
 
-**Le contrat ne dérive pas.** `contracts/linkedin.openapi.yaml` est généré
-depuis l'application, mais il est COMMITTÉ — la seule disposition où le
-fichier est à la fois relisible dans un diff de PR et garanti exact.
+**The contract does not drift.** `contracts/linkedin.openapi.yaml` is
+generated from the application, but it is COMMITTED — the only arrangement
+where the file is both readable in a PR diff and guaranteed exact.
 
-**L'inventaire d'honnêteté est complet.** Tout champ marqué
-`x-linkedin-confidence: unverified` DOIT figurer dans
-docs/UNVERIFIED-FIELDS.md — un marqueur que personne ne relève est un
-commentaire. L'honnêteté est une contrainte de build, pas une bonne intention.
+**The honesty inventory is complete.** Every field tagged
+`x-linkedin-confidence: unverified` MUST appear in
+docs/UNVERIFIED-FIELDS.md — a marker nobody follows up on is just a
+comment. Honesty is a build constraint, not a good intention.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ import yaml
 
 import linkedin_mock as mock
 
-RACINE = Path(__file__).resolve().parents[1]
-CONTRAT = RACINE / "contracts" / "linkedin.openapi.yaml"
-REGISTRE = RACINE / "docs" / "UNVERIFIED-FIELDS.md"
+ROOT = Path(__file__).resolve().parents[1]
+CONTRACT = ROOT / "contracts" / "linkedin.openapi.yaml"
+REGISTRY = ROOT / "docs" / "UNVERIFIED-FIELDS.md"
 
 FINDERS = (
     "/rest/posts",
@@ -34,92 +34,92 @@ FINDERS = (
 )
 
 
-def _champs_marques(schemas: dict[str, Any], marqueur: str) -> dict[str, str]:
-    """Rend {nom_de_champ: note} pour tous les champs portant ce niveau de confiance."""
-    trouves: dict[str, str] = {}
+def _tagged_fields(schemas: dict[str, Any], marker: str) -> dict[str, str]:
+    """Return {field_name: note} for every field carrying this confidence level."""
+    found: dict[str, str] = {}
     for schema in schemas.values():
-        for nom, prop in (schema.get("properties") or {}).items():
-            if prop.get("x-linkedin-confidence") == marqueur:
-                trouves[nom] = prop.get("x-linkedin-note", "")
-    return trouves
+        for name, prop in (schema.get("properties") or {}).items():
+            if prop.get("x-linkedin-confidence") == marker:
+                found[name] = prop.get("x-linkedin-note", "")
+    return found
 
 
 @pytest.fixture(scope="module")
-def genere() -> dict[str, Any]:
-    # `contrat_openapi()` et non `app.openapi()` : le contrat décrit le
-    # dialecte LinkedIn. Comparer à l'application brute échouerait selon que
-    # LINKEDIN_MOCK_ADMIN_ENABLED est vrai ou non au moment du run.
-    return mock.contrat_openapi()
+def generated() -> dict[str, Any]:
+    # `openapi_contract()` and not `app.openapi()`: the contract describes
+    # the LinkedIn dialect. Comparing against the raw application would fail
+    # depending on whether LINKEDIN_MOCK_ADMIN_ENABLED is true at run time.
+    return mock.openapi_contract()
 
 
-def test_le_contrat_committe_est_a_jour(genere: dict[str, Any]) -> None:
-    """Le fichier committé == ce que l'application produit."""
-    assert CONTRAT.exists(), f"{CONTRAT} absent — lancer `make contract`"
-    committe = yaml.safe_load(CONTRAT.read_text(encoding="utf-8"))
-    assert committe == genere, (
-        "Le contrat committé a dérivé de l'application. Lancer `make contract`, "
-        "RELIRE le diff — une forme de réponse qui change est un changement de "
-        "contrat pour les consommateurs — puis committer."
+def test_committed_contract_is_current(generated: dict[str, Any]) -> None:
+    """The committed file == what the application produces."""
+    assert CONTRACT.exists(), f"{CONTRACT} missing — run `make contract`"
+    committed = yaml.safe_load(CONTRACT.read_text(encoding="utf-8"))
+    assert committed == generated, (
+        "The committed contract has drifted from the application. Run "
+        "`make contract`, READ the diff — a changing response shape is a "
+        "contract change for consumers — then commit it."
     )
 
 
-def test_le_contrat_porte_de_vraies_formes(genere: dict[str, Any]) -> None:
-    """Un contrat sans schémas n'est pas un contrat."""
-    schemas = genere.get("components", {}).get("schemas", {})
-    assert len(schemas) > 15, f"seulement {len(schemas)} schémas — les routes sont-elles typées ?"
+def test_contract_carries_real_shapes(generated: dict[str, Any]) -> None:
+    """A contract with no schemas is not a contract."""
+    schemas = generated.get("components", {}).get("schemas", {})
+    assert len(schemas) > 15, f"only {len(schemas)} schemas — are the routes typed?"
 
-    for chemin in FINDERS:
-        contenu = genere["paths"][chemin]["get"]["responses"]["200"]["content"]
-        schema = contenu["application/json"]["schema"]
+    for path in FINDERS:
+        content = generated["paths"][path]["get"]["responses"]["200"]["content"]
+        schema = content["application/json"]["schema"]
         assert "$ref" in schema or "allOf" in schema, (
-            f"{chemin} ne déclare pas de forme de réponse exploitable : {schema}"
+            f"{path} does not declare a usable response shape: {schema}"
         )
 
 
-def test_le_contrat_ne_publie_pas_les_affordances_du_mock(genere: dict[str, Any]) -> None:
-    """`/__admin` n'est pas du LinkedIn — le publier ferait passer pour du
-    fournisseur ce qui n'en est pas."""
-    intrus = [c for c in genere["paths"] if c.startswith("/__admin")]
-    assert not intrus, (
-        f"le contrat publie des affordances du mock : {intrus}. "
-        "Elles sont documentées dans le README, pas dans le contrat."
+def test_contract_does_not_leak_mock_affordances(generated: dict[str, Any]) -> None:
+    """`/__admin` is not LinkedIn — publishing it would pass off the mock's
+    own affordances as the provider's."""
+    leaks = [p for p in generated["paths"] if p.startswith("/__admin")]
+    assert not leaks, (
+        f"the contract publishes mock affordances: {leaks}. "
+        "They're documented in the README, not in the contract."
     )
 
 
 @pytest.mark.parametrize("code", ["400", "401", "426", "429"])
-def test_les_erreurs_sont_documentees(genere: dict[str, Any], code: str) -> None:
-    """Les codes d'erreur font partie du contrat — un consommateur doit savoir
-    qu'un 400 peut être VERSION_MISSING et qu'un 429 arrive SANS Retry-After."""
-    reponses = genere["paths"]["/rest/organizationalEntityShareStatistics"]["get"]["responses"]
-    assert code in reponses, f"le code {code} n'est pas documenté sur shareStatistics"
+def test_errors_are_documented(generated: dict[str, Any], code: str) -> None:
+    """Error codes are part of the contract — a consumer must know that a
+    400 can be VERSION_MISSING and a 429 arrives WITHOUT Retry-After."""
+    responses = generated["paths"]["/rest/organizationalEntityShareStatistics"]["get"]["responses"]
+    assert code in responses, f"code {code} is not documented on shareStatistics"
 
 
-def test_tout_champ_non_verifie_est_inscrit_au_registre(genere: dict[str, Any]) -> None:
-    """LE test qui rend l'honnêteté vérifiable."""
-    schemas = genere.get("components", {}).get("schemas", {})
-    marques = _champs_marques(schemas, "unverified")
-    assert marques, (
-        "AUCUN champ marqué `unverified`. Ce serait une bonne nouvelle si le "
-        "dialecte était intégralement attesté — il ne l'est pas (corps des 401, "
-        "paging.links, uniquePageViews quotidien…). Le marquage a-t-il été retiré ?"
+def test_every_unverified_field_is_registered(generated: dict[str, Any]) -> None:
+    """THE test that makes honesty verifiable."""
+    schemas = generated.get("components", {}).get("schemas", {})
+    tagged = _tagged_fields(schemas, "unverified")
+    assert tagged, (
+        "NO field tagged `unverified`. That would be good news if the "
+        "dialect were fully attested — it isn't (401 bodies, paging.links, "
+        "daily uniquePageViews…). Was the tagging removed?"
     )
 
-    registre = REGISTRE.read_text(encoding="utf-8")
-    absents = sorted(nom for nom in marques if nom not in registre)
-    assert not absents, (
-        "Champs marqués `unverified` mais ABSENTS de docs/UNVERIFIED-FIELDS.md :\n  "
-        + "\n  ".join(f"{n} — {marques[n]}" for n in absents)
-        + "\n\nUn marqueur que personne ne relève est un commentaire. Inscrire "
-        "chaque champ au registre, avec ce qu'il faudrait faire pour lever le doute."
+    registry = REGISTRY.read_text(encoding="utf-8")
+    missing = sorted(name for name in tagged if name not in registry)
+    assert not missing, (
+        "Fields tagged `unverified` but ABSENT from docs/UNVERIFIED-FIELDS.md:\n  "
+        + "\n  ".join(f"{n} — {tagged[n]}" for n in missing)
+        + "\n\nA marker nobody follows up on is just a comment. Register "
+        "every field, with what it would take to resolve the doubt."
     )
 
 
-def test_les_champs_inventes_sont_signales_comme_tels(genere: dict[str, Any]) -> None:
-    """`invented` est plus grave qu'`unverified` et doit rester exceptionnel."""
-    schemas = genere.get("components", {}).get("schemas", {})
-    inventes = _champs_marques(schemas, "invented")
-    if not inventes:
+def test_invented_fields_are_flagged_as_such(generated: dict[str, Any]) -> None:
+    """`invented` is more serious than `unverified` and must stay exceptional."""
+    schemas = generated.get("components", {}).get("schemas", {})
+    invented = _tagged_fields(schemas, "invented")
+    if not invented:
         return
-    registre = REGISTRE.read_text(encoding="utf-8")
-    absents = sorted(nom for nom in inventes if nom not in registre)
-    assert not absents, f"champs INVENTÉS absents du registre : {absents}"
+    registry = REGISTRY.read_text(encoding="utf-8")
+    missing = sorted(name for name in invented if name not in registry)
+    assert not missing, f"INVENTED fields absent from the registry: {missing}"

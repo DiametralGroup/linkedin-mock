@@ -1,9 +1,10 @@
-"""Configuration — tout par variables d'environnement, aucun fichier.
+"""Configuration — everything via environment variables, no file.
 
-Même règle que boondmanager-mock : les variables sont lues à l'import dans un
-objet relu par `reload()`, parce que c'est le seul mécanisme qui marche
-identiquement en docker compose, en Deployment Kubernetes et en sidecar Tekton
-— et que les tests doivent pouvoir en changer sans recharger le module.
+Same rule as boondmanager-mock: variables are read at import time into an
+object re-read by `reload()`, because that's the only mechanism that works
+identically in docker compose, in a Kubernetes Deployment and in a Tekton
+sidecar — and because tests must be able to change them without reloading the
+module.
 """
 
 from __future__ import annotations
@@ -21,60 +22,60 @@ def _flag(name: str, default: bool) -> bool:
 
 @dataclass
 class Settings:
-    """État de configuration, relu à chaud par `reload()`."""
+    """Configuration state, hot-reloaded by `reload()`."""
 
-    # ── Authentification ─────────────────────────────────────────────────────
-    # Un Bearer statique, pas de flux OAuth : le vrai endpoint de jeton vit sur
-    # www.linkedin.com (un AUTRE hôte que l'API) et le connecteur consomme un
-    # jeton de 60 jours depuis ses secrets — il ne fait jamais le flux 3-legged
-    # à l'exécution. Les variantes expired/revoked permettent de répéter les
-    # gestes de gestion d'erreur 401 côté client.
+    # ── Authentication ────────────────────────────────────────────────────────
+    # A static Bearer, no OAuth flow: the real token endpoint lives on
+    # www.linkedin.com (a DIFFERENT host from the API) and the connector
+    # consumes a 60-day token from its secrets — it never runs the 3-legged
+    # flow at runtime. The expired/revoked variants let client-side 401
+    # error-handling behavior be exercised repeatedly.
     access_token: str = "mock-linkedin-token"
     expired_token: str = "mock-linkedin-token-expired"
     revoked_token: str = "mock-linkedin-token-revoked"
 
-    # ── Organisation servie ──────────────────────────────────────────────────
-    # L'id numérique de la page « Boréal Conseil » (urn:li:organization:{id}).
+    # ── Organization served ───────────────────────────────────────────────────
+    # The numeric id of the "Boréal Conseil" page (urn:li:organization:{id}).
     org_id: str = "40123456"
 
     seed: int = 42
 
-    # ── Versionnement LinkedIn ───────────────────────────────────────────────
-    # L'API réelle exige `Linkedin-Version: YYYYMM` et retire une version ~12
-    # mois après sa publication. La fenêtre acceptée est configurable pour que
-    # le mock puisse répéter un retrait de version (426) sans nouvelle image.
+    # ── LinkedIn versioning ───────────────────────────────────────────────────
+    # The real API requires `Linkedin-Version: YYYYMM` and retires a version
+    # ~12 months after its release. The accepted window is configurable so the
+    # mock can repeat a version retirement (426) without a new image.
     oldest_active_version: str = "202408"
     latest_active_version: str = "202607"
 
-    # Rest.li 2.0 : la syntaxe List()/(timeRange:...) sans l'en-tête
-    # X-Restli-Protocol-Version: 2.0.0 → 400. Comportement réel NON attesté
-    # (cf. docs/UNVERIFIED-FIELDS.md) — le but est d'entraîner le connecteur à
-    # toujours envoyer l'en-tête.
+    # Rest.li 2.0: List()/(timeRange:...) syntax without the
+    # X-Restli-Protocol-Version: 2.0.0 header → 400. Real behavior NOT
+    # attested (cf. docs/UNVERIFIED-FIELDS.md) — the goal is to train the
+    # connector to always send the header.
     require_restli_2: bool = True
 
-    # « Time-bound statistics is not supported for specific share queries » —
-    # la doc officielle est formelle. true (défaut) : la combinaison
-    # shares+timeIntervals → 400 explicite. false : le mock la sert quand même
-    # (exploration), en sachant que l'API réelle ne le fera probablement pas.
+    # "Time-bound statistics is not supported for specific share queries" —
+    # the official doc is explicit. true (default): the shares+timeIntervals
+    # combination → explicit 400. false: the mock serves it anyway
+    # (exploration), knowing the real API probably won't.
     strict_shares_timebound: bool = True
 
-    # Quota journalier applicatif (0 = désactivé) : au-delà de N requêtes par
-    # jour UTC VIRTUEL et par chemin /rest/*, 429 sans Retry-After — le vrai
-    # régime LinkedIn (reset à minuit UTC, quotas non publiés).
+    # Daily application-level quota (0 = disabled): past N requests per
+    # VIRTUAL UTC day and per /rest/* path, 429 without Retry-After — the real
+    # LinkedIn regime (midnight UTC reset, unpublished quotas).
     daily_quota: int = 0
 
-    # Plan de contrôle /__admin. Fermé par défaut : il n'a de sens qu'en test.
+    # /__admin control plane. Closed by default: it only makes sense in tests.
     admin_enabled: bool = False
     admin_token: str = "mock-admin-token"
 
-    # ── Évolution temporelle (extraction incrémentale) ───────────────────────
-    # La page VIT : un événement scripté toutes les `evolution_interval`
-    # secondes (stats du jour, nouveau post, gains d'abonnés, édition…).
-    # false — ou intervalle à 0 — fige le jeu de données à l'octet près.
+    # ── Time evolution (incremental extraction) ──────────────────────────────
+    # The page LIVES: a scripted event every `evolution_interval` seconds
+    # (daily stats, new post, follower gains, edit…).
+    # false — or an interval of 0 — freezes the dataset byte for byte.
     evolution_enabled: bool = True
     evolution_interval: float = 60.0
 
-    # Pagination Rest.li : start/count, défaut 10, plafond posts 100.
+    # Rest.li pagination: start/count, default 10, posts cap 100.
     default_count: int = 10
     posts_count_cap: int = 100
 

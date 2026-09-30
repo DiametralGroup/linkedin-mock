@@ -23,75 +23,75 @@ paths:
   /rest/posts:
     get:
       summary: Finder by author — the organization's posts
-      description: 'Finder `q=author&author={urn}` : tri `sortBy=LAST_MODIFIED` (défaut)
-        ou `CREATED`, descendant ; pagination `start`/`count` (défaut 10, plafond
-        100), fin de données = page courte. La MÊME route sert le batch get `?ids=List(urn,urn)`
-        — réponse `{results, statuses, errors}` par URN, non décrite par ce schéma.'
-      operationId: lister_posts_rest_posts_get
+      description: 'Finder `q=author&author={urn}`: sort `sortBy=LAST_MODIFIED` (default)
+        or `CREATED`, descending; pagination `start`/`count` (default 10, cap 100),
+        end of data = short page. The SAME route serves the batch get `?ids=List(urn,urn)`
+        — response `{results, statuses, errors}` per URN, not described by this schema.'
+      operationId: list_posts_rest_posts_get
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnveloppeElements_Post_'
+                $ref: '#/components/schemas/ElementsEnvelope_Post_'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
   /rest/posts/{post_urn}:
     get:
       summary: Get a post by URN (URL-encoded)
-      operationId: lire_post_rest_posts__post_urn__get
+      operationId: get_post_rest_posts__post_urn__get
       parameters:
       - name: post_urn
         in: path
@@ -107,58 +107,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/Post'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '422':
           description: Validation Error
           content:
@@ -168,283 +168,283 @@ paths:
   /rest/organizationalEntityShareStatistics:
     get:
       summary: Share statistics — lifetime, per-share, or time-bound buckets
-      description: 'Sans paramètre : l''agrégat organisation vie entière (fenêtre
-        glissante de 12 mois sur les buckets). `shares=List(...)`/`ugcPosts=List(...)`
-        : un élément par post ACTIF — les posts sans activité sont omis (« can be
-        assumed to have counts of 0 »). `timeIntervals=(timeRange:(start:ms,end:ms),timeGranularityType:DAY|MONTH)`
-        : un élément par bucket. La combinaison per-share + timeIntervals est refusée
-        par défaut — comportement documenté de l''API réelle.'
-      operationId: stats_partage_rest_organizationalEntityShareStatistics_get
+      description: 'No parameter: the organization-wide lifetime aggregate (rolling
+        12-month window on the buckets). `shares=List(...)`/`ugcPosts=List(...)`:
+        one element per ACTIVE post — posts with no activity are omitted ("can be
+        assumed to have counts of 0"). `timeIntervals=(timeRange:(start:ms,end:ms),timeGranularityType:DAY|MONTH)`:
+        one element per bucket. The per-share + timeIntervals combination is refused
+        by default — documented behavior of the real API.'
+      operationId: share_stats_rest_organizationalEntityShareStatistics_get
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnveloppeElements_ElementStatsPartage_'
+                $ref: '#/components/schemas/ElementsEnvelope_ShareStatsElement_'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
   /rest/organizationalEntityFollowerStatistics:
     get:
       summary: Follower statistics — demographics (lifetime) or daily gains
-      description: 'Vie entière : les 7 familles de facettes démographiques (chacune
-        couvre MOINS que le total — le total vit sur /networkSizes). Time-bound (DAY|WEEK|MONTH,
-        `timeRange.start` OBLIGATOIRE) : `followerGains` par bucket, données disponibles
-        de J-365 à J-2 UTC.'
-      operationId: stats_abonnes_rest_organizationalEntityFollowerStatistics_get
+      description: 'Lifetime: the 7 demographic facet families (each covers LESS than
+        the total — the total lives on /networkSizes). Time-bound (DAY|WEEK|MONTH,
+        `timeRange.start` MANDATORY): `followerGains` per bucket, data available from
+        J-365 to J-2 UTC.'
+      operationId: follower_stats_rest_organizationalEntityFollowerStatistics_get
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnveloppeElements_ElementStatsAbonnes_'
+                $ref: '#/components/schemas/ElementsEnvelope_FollowerStatsElement_'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
   /rest/organizationPageStatistics:
     get:
       summary: Page statistics — views (lifetime) or daily buckets
-      description: 'PIÈGE du dialecte : le finder est `q=organization` et le paramètre
-        `organization` — pas `organizationalEntity` comme les deux autres. Vie entière
-        : `totalPageStatistics` (15 compteurs de vues, arithmétique vérifiée) + 6
-        facettes. Time-bound (DAY|MONTH) : jeu de familles réduit, avec `uniquePageViews`.'
-      operationId: stats_page_rest_organizationPageStatistics_get
+      description: 'Dialect TRAP: the finder is `q=organization` and the parameter
+        `organization` — not `organizationalEntity` like the other two. Lifetime:
+        `totalPageStatistics` (15 view counters, verified arithmetic) + 6 facets.
+        Time-bound (DAY|MONTH): reduced set of families, with `uniquePageViews`.'
+      operationId: page_stats_rest_organizationPageStatistics_get
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnveloppeElements_ElementStatsPage_'
+                $ref: '#/components/schemas/ElementsEnvelope_PageStatsElement_'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
   /rest/organizations:
     get:
       summary: Batch get (?ids=List) or finder by vanityName
-      description: 'Batch `?ids=List(40123456,27056405)` : `statuses` porte le code
-        PAR id (200/403). Finder `?q=vanityName&vanityName=…` : enveloppe elements/paging
-        avec `total` — un des rares finders qui l''émettent.'
-      operationId: organisations_rest_organizations_get
+      description: 'Batch `?ids=List(40123456,27056405)`: `statuses` carries the code
+        PER id (200/403). Finder `?q=vanityName&vanityName=…`: elements/paging envelope
+        with `total` — one of the few finders that emit it.'
+      operationId: organizations_rest_organizations_get
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LotOrganisations'
+                $ref: '#/components/schemas/OrganizationsBatch'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
   /rest/organizations/{org_id}:
     get:
       summary: Organization lookup — the credentials smoke test
-      description: 'L''entité plate Rest.li : `id` est un NOMBRE et `$URN` est présent.
-        C''est l''appel que le connecteur fait AVANT d''ouvrir son pipeline — l''analogue
-        du current-user de BoondManager.'
-      operationId: lire_organisation_rest_organizations__org_id__get
+      description: 'The flat Rest.li entity: `id` is a NUMBER and `$URN` is present.
+        This is the call the connector makes BEFORE opening its pipeline — the analogue
+        of BoondManager''s current-user.'
+      operationId: get_organization_rest_organizations__org_id__get
       parameters:
       - name: org_id
         in: path
@@ -458,60 +458,60 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Organisation'
+                $ref: '#/components/schemas/Organization'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '422':
           description: Validation Error
           content:
@@ -521,9 +521,9 @@ paths:
   /rest/networkSizes/{entity_urn}:
     get:
       summary: firstDegreeSize — THE follower total
-      description: '`?edgeType=COMPANY_FOLLOWED_BY_MEMBER` obligatoire. Les follower
-        statistics n''ont PLUS de total : il vit ici.'
-      operationId: taille_reseau_rest_networkSizes__entity_urn__get
+      description: '`?edgeType=COMPANY_FOLLOWED_BY_MEMBER` mandatory. Follower statistics
+        no LONGER have a total: it lives here.'
+      operationId: network_size_rest_networkSizes__entity_urn__get
       parameters:
       - name: entity_urn
         in: path
@@ -537,60 +537,60 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TailleReseau'
+                $ref: '#/components/schemas/NetworkSize'
         '400':
-          description: 'Paramètre `q` absent ou inconnu, URN malformé, `count` hors
-            bornes, granularité invalide — ou en-tête `Linkedin-Version` absent (`code:
-            VERSION_MISSING`).'
+          description: 'Missing or unknown `q` parameter, malformed URN, `count` out
+            of bounds, invalid granularity — or missing `Linkedin-Version` header
+            (`code: VERSION_MISSING`).'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '401':
-          description: 'Jeton absent (`Empty oauth2_access_token`), invalide, expiré
-            ou révoqué. Un 401 n''est PAS retryable : c''est un état du jeton.'
+          description: 'Missing (`Empty oauth2_access_token`), invalid, expired or
+            revoked token. A 401 is NOT retryable: it''s a token state.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '403':
-          description: Organisation non administrée par le jeton (ACCESS_DENIED).
+          description: Organization not administered by the token (ACCESS_DENIED).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '404':
-          description: Entité inconnue ou organisation inactive.
+          description: Unknown entity or inactive organization.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '426':
-          description: Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn
-            retire une version ~12 mois après sa publication.
+          description: Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn
+            retires a version ~12 months after its release.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '429':
-          description: Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS
-            en-tête Retry-After (différence clé avec BoondManager).
+          description: DAILY quota reached — reset at midnight UTC, WITHOUT a Retry-After
+            header (key difference from BoondManager).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '500':
-          description: Panne injectée.
+          description: Injected failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '503':
-          description: Panne transitoire injectée.
+          description: Injected transient failure.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErreurLinkedIn'
+                $ref: '#/components/schemas/LinkedInError'
         '422':
           description: Validation Error
           content:
@@ -599,42 +599,7 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
-    ClicsPage:
-      properties:
-        desktopCustomButtonClickCounts:
-          items:
-            additionalProperties: true
-            type: object
-          type: array
-          title: Desktopcustombuttonclickcounts
-        mobileCustomButtonClickCounts:
-          items:
-            additionalProperties: true
-            type: object
-          type: array
-          title: Mobilecustombuttonclickcounts
-      additionalProperties: true
-      type: object
-      title: ClicsPage
-    CompteursAbonnes:
-      properties:
-        organicFollowerCount:
-          type: integer
-          title: Organicfollowercount
-        paidFollowerCount:
-          type: integer
-          title: Paidfollowercount
-      additionalProperties: true
-      type: object
-      required:
-      - organicFollowerCount
-      - paidFollowerCount
-      title: CompteursAbonnes
-      description: 'Les démographies roulent le payant dans l''organique — note officielle
-        :
-
-        « Do not refer to the paidFollowerCount field ».'
-    ContenuArticle:
+    ArticleContent:
       properties:
         source:
           type: string
@@ -653,53 +618,7 @@ components:
       type: object
       required:
       - source
-      title: ContenuArticle
-    ContenuMedia:
-      properties:
-        id:
-          type: string
-          title: Id
-          description: urn:li:video:… | urn:li:image:… | urn:li:document:…
-        title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Title
-      additionalProperties: true
-      type: object
-      required:
-      - id
-      title: ContenuMedia
-    ContenuPost:
-      properties:
-        media:
-          anyOf:
-          - $ref: '#/components/schemas/ContenuMedia'
-          - type: 'null'
-        article:
-          anyOf:
-          - $ref: '#/components/schemas/ContenuArticle'
-          - type: 'null'
-      additionalProperties: true
-      type: object
-      title: ContenuPost
-      description: Le bloc `content` — `{}` sur certains posts texte, absent sur d'autres.
-    ContexteRepartage:
-      properties:
-        parent:
-          type: string
-          title: Parent
-        root:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Root
-      additionalProperties: true
-      type: object
-      required:
-      - parent
-      title: ContexteRepartage
-      description: 'Présent sur les repartages : le post relayé (`parent`) et l''origine.'
+      title: ArticleContent
     Distribution:
       properties:
         feedDistribution:
@@ -716,171 +635,13 @@ components:
       required:
       - feedDistribution
       title: Distribution
-    ElementStatsAbonnes:
-      properties:
-        timeRange:
-          anyOf:
-          - $ref: '#/components/schemas/PlageTemporelle'
-          - type: 'null'
-        followerGains:
-          anyOf:
-          - $ref: '#/components/schemas/GainsAbonnes'
-          - type: 'null'
-        followerCountsByAssociationType:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacetteAbonnes'
-            type: array
-          - type: 'null'
-          title: Followercountsbyassociationtype
-        followerCountsByGeoCountry:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacetteAbonnes'
-            type: array
-          - type: 'null'
-          title: Followercountsbygeocountry
-        followerCountsByFunction:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacetteAbonnes'
-            type: array
-          - type: 'null'
-          title: Followercountsbyfunction
-        followerCountsByIndustry:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacetteAbonnes'
-            type: array
-          - type: 'null'
-          title: Followercountsbyindustry
-        followerCountsByGeo:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacetteAbonnes'
-            type: array
-          - type: 'null'
-          title: Followercountsbygeo
-        followerCountsBySeniority:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacetteAbonnes'
-            type: array
-          - type: 'null'
-          title: Followercountsbyseniority
-        followerCountsByStaffCountRange:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacetteAbonnes'
-            type: array
-          - type: 'null'
-          title: Followercountsbystaffcountrange
-        organizationalEntity:
-          type: string
-          title: Organizationalentity
-      additionalProperties: true
-      type: object
-      required:
-      - organizationalEntity
-      title: ElementStatsAbonnes
-      description: 'Vie entière : les 7 familles de facettes. Time-bound : `followerGains`
-
-        par bucket — les facettes ne sont pas servies en time-bound.'
-    ElementStatsPage:
-      properties:
-        timeRange:
-          anyOf:
-          - $ref: '#/components/schemas/PlageTemporelle'
-          - type: 'null'
-        pageStatisticsByGeoCountry:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacettePage'
-            type: array
-          - type: 'null'
-          title: Pagestatisticsbygeocountry
-        pageStatisticsByFunction:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacettePage'
-            type: array
-          - type: 'null'
-          title: Pagestatisticsbyfunction
-        pageStatisticsByIndustryV2:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacettePage'
-            type: array
-          - type: 'null'
-          title: Pagestatisticsbyindustryv2
-        pageStatisticsByGeo:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacettePage'
-            type: array
-          - type: 'null'
-          title: Pagestatisticsbygeo
-        pageStatisticsBySeniority:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacettePage'
-            type: array
-          - type: 'null'
-          title: Pagestatisticsbyseniority
-        pageStatisticsByStaffCountRange:
-          anyOf:
-          - items:
-              $ref: '#/components/schemas/FacettePage'
-            type: array
-          - type: 'null'
-          title: Pagestatisticsbystaffcountrange
-        totalPageStatistics:
-          $ref: '#/components/schemas/StatistiquesPage'
-        organization:
-          type: string
-          title: Organization
-      additionalProperties: true
-      type: object
-      required:
-      - totalPageStatistics
-      - organization
-      title: ElementStatsPage
-    ElementStatsPartage:
-      properties:
-        timeRange:
-          anyOf:
-          - $ref: '#/components/schemas/PlageTemporelle'
-          - type: 'null'
-        totalShareStatistics:
-          $ref: '#/components/schemas/StatistiquesPartage'
-        share:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Share
-          description: Présent en mode per-share (URN share).
-        ugcPost:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Ugcpost
-          description: Présent en mode per-ugcPost.
-        organizationalEntity:
-          type: string
-          title: Organizationalentity
-      additionalProperties: true
-      type: object
-      required:
-      - totalShareStatistics
-      - organizationalEntity
-      title: ElementStatsPartage
-    EnveloppeElements_ElementStatsAbonnes_:
+    ElementsEnvelope_FollowerStatsElement_:
       properties:
         paging:
           $ref: '#/components/schemas/Paging'
         elements:
           items:
-            $ref: '#/components/schemas/ElementStatsAbonnes'
+            $ref: '#/components/schemas/FollowerStatsElement'
           type: array
           title: Elements
       additionalProperties: true
@@ -888,14 +649,14 @@ components:
       required:
       - paging
       - elements
-      title: EnveloppeElements[ElementStatsAbonnes]
-    EnveloppeElements_ElementStatsPage_:
+      title: ElementsEnvelope[FollowerStatsElement]
+    ElementsEnvelope_PageStatsElement_:
       properties:
         paging:
           $ref: '#/components/schemas/Paging'
         elements:
           items:
-            $ref: '#/components/schemas/ElementStatsPage'
+            $ref: '#/components/schemas/PageStatsElement'
           type: array
           title: Elements
       additionalProperties: true
@@ -903,23 +664,8 @@ components:
       required:
       - paging
       - elements
-      title: EnveloppeElements[ElementStatsPage]
-    EnveloppeElements_ElementStatsPartage_:
-      properties:
-        paging:
-          $ref: '#/components/schemas/Paging'
-        elements:
-          items:
-            $ref: '#/components/schemas/ElementStatsPartage'
-          type: array
-          title: Elements
-      additionalProperties: true
-      type: object
-      required:
-      - paging
-      - elements
-      title: EnveloppeElements[ElementStatsPartage]
-    EnveloppeElements_Post_:
+      title: ElementsEnvelope[PageStatsElement]
+    ElementsEnvelope_Post_:
       properties:
         paging:
           $ref: '#/components/schemas/Paging'
@@ -933,45 +679,44 @@ components:
       required:
       - paging
       - elements
-      title: EnveloppeElements[Post]
-    ErreurLinkedIn:
+      title: ElementsEnvelope[Post]
+    ElementsEnvelope_ShareStatsElement_:
       properties:
-        message:
-          type: string
-          title: Message
-        serviceErrorCode:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Serviceerrorcode
-          x-linkedin-confidence: unverified
-          x-linkedin-note: les codes numériques des 401 invalid/expired/revoked (65600…)
-            et du 429 ne sont pas publiés par la doc officielle
-        code:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Code
-          description: Constante symbolique (VERSION_MISSING…).
-        status:
-          type: integer
-          title: Status
+        paging:
+          $ref: '#/components/schemas/Paging'
+        elements:
+          items:
+            $ref: '#/components/schemas/ShareStatsElement'
+          type: array
+          title: Elements
       additionalProperties: true
       type: object
       required:
-      - message
-      - status
-      title: ErreurLinkedIn
-      description: 'Le corps d''erreur plat des API versionnées.
+      - paging
+      - elements
+      title: ElementsEnvelope[ShareStatsElement]
+    FollowerCounts:
+      properties:
+        organicFollowerCount:
+          type: integer
+          title: Organicfollowercount
+        paidFollowerCount:
+          type: integer
+          title: Paidfollowercount
+      additionalProperties: true
+      type: object
+      required:
+      - organicFollowerCount
+      - paidFollowerCount
+      title: FollowerCounts
+      description: 'Demographics roll the paid count into the organic one — official
+        note:
 
-
-        Attesté : `{"message", "serviceErrorCode", "status"}` (401 sans jeton) et
-
-        les variantes à `code` (VERSION_MISSING, NONEXISTENT_VERSION).'
-    FacetteAbonnes:
+        "Do not refer to the paidFollowerCount field".'
+    FollowerFacet:
       properties:
         followerCounts:
-          $ref: '#/components/schemas/CompteursAbonnes'
+          $ref: '#/components/schemas/FollowerCounts'
         associationType:
           anyOf:
           - type: string
@@ -983,29 +728,29 @@ components:
           - type: 'null'
           title: Geo
           x-linkedin-confidence: unverified
-          x-linkedin-note: les entiers des URN urn:li:geo:… sont plausibles, pas attestés
-            segment par segment
+          x-linkedin-note: the urn:li:geo:… integers are plausible, not attested segment
+            by segment
         function:
           anyOf:
           - type: string
           - type: 'null'
           title: Function
           x-linkedin-confidence: unverified
-          x-linkedin-note: sémantique des entiers urn:li:function:… plausible
+          x-linkedin-note: semantics of the urn:li:function:… integers are plausible
         industry:
           anyOf:
           - type: string
           - type: 'null'
           title: Industry
           x-linkedin-confidence: unverified
-          x-linkedin-note: sémantique des entiers urn:li:industry:… plausible
+          x-linkedin-note: semantics of the urn:li:industry:… integers are plausible
         seniority:
           anyOf:
           - type: string
           - type: 'null'
           title: Seniority
           x-linkedin-confidence: unverified
-          x-linkedin-note: sémantique des entiers urn:li:seniority:… plausible
+          x-linkedin-note: semantics of the urn:li:seniority:… integers are plausible
         staffCountRange:
           anyOf:
           - type: string
@@ -1015,52 +760,13 @@ components:
       type: object
       required:
       - followerCounts
-      title: FacetteAbonnes
-    FacettePage:
-      properties:
-        pageStatistics:
-          additionalProperties:
-            additionalProperties:
-              $ref: '#/components/schemas/VuesPage'
-            type: object
-          type: object
-          title: Pagestatistics
-        geo:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Geo
-        function:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Function
-        industryV2:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Industryv2
-        seniority:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Seniority
-        staffCountRange:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Staffcountrange
-      additionalProperties: true
-      type: object
-      required:
-      - pageStatistics
-      title: FacettePage
-    GainsAbonnes:
+      title: FollowerFacet
+    FollowerGains:
       properties:
         organicFollowerGain:
           type: integer
           title: Organicfollowergain
-          description: Gain NET — peut être négatif.
+          description: NET gain — can be negative.
         paidFollowerGain:
           type: integer
           title: Paidfollowergain
@@ -1069,7 +775,77 @@ components:
       required:
       - organicFollowerGain
       - paidFollowerGain
-      title: GainsAbonnes
+      title: FollowerGains
+    FollowerStatsElement:
+      properties:
+        timeRange:
+          anyOf:
+          - $ref: '#/components/schemas/TimeRange'
+          - type: 'null'
+        followerGains:
+          anyOf:
+          - $ref: '#/components/schemas/FollowerGains'
+          - type: 'null'
+        followerCountsByAssociationType:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FollowerFacet'
+            type: array
+          - type: 'null'
+          title: Followercountsbyassociationtype
+        followerCountsByGeoCountry:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FollowerFacet'
+            type: array
+          - type: 'null'
+          title: Followercountsbygeocountry
+        followerCountsByFunction:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FollowerFacet'
+            type: array
+          - type: 'null'
+          title: Followercountsbyfunction
+        followerCountsByIndustry:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FollowerFacet'
+            type: array
+          - type: 'null'
+          title: Followercountsbyindustry
+        followerCountsByGeo:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FollowerFacet'
+            type: array
+          - type: 'null'
+          title: Followercountsbygeo
+        followerCountsBySeniority:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FollowerFacet'
+            type: array
+          - type: 'null'
+          title: Followercountsbyseniority
+        followerCountsByStaffCountRange:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FollowerFacet'
+            type: array
+          - type: 'null'
+          title: Followercountsbystaffcountrange
+        organizationalEntity:
+          type: string
+          title: Organizationalentity
+      additionalProperties: true
+      type: object
+      required:
+      - organizationalEntity
+      title: FollowerStatsElement
+      description: 'Lifetime: the 7 facet families. Time-bound: `followerGains` per
+
+        bucket — facets aren''t served in time-bound mode.'
     HTTPValidationError:
       properties:
         detail:
@@ -1079,7 +855,7 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
-    InfoCycleDeVie:
+    LifecycleInfo:
       properties:
         isEditedByAuthor:
           type: boolean
@@ -1087,44 +863,42 @@ components:
           default: false
       additionalProperties: true
       type: object
-      title: InfoCycleDeVie
-    LocaleOrganisation:
+      title: LifecycleInfo
+    LinkedInError:
       properties:
-        country:
+        message:
           type: string
-          title: Country
-        language:
-          type: string
-          title: Language
+          title: Message
+        serviceErrorCode:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Serviceerrorcode
+          x-linkedin-confidence: unverified
+          x-linkedin-note: the numeric codes for the 401 invalid/expired/revoked (65600…)
+            and for the 429 aren't published by the official doc
+        code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Code
+          description: Symbolic constant (VERSION_MISSING…).
+        status:
+          type: integer
+          title: Status
       additionalProperties: true
       type: object
       required:
-      - country
-      - language
-      title: LocaleOrganisation
-    LotOrganisations:
-      properties:
-        results:
-          additionalProperties:
-            $ref: '#/components/schemas/Organisation'
-          type: object
-          title: Results
-        statuses:
-          additionalProperties:
-            type: integer
-          type: object
-          title: Statuses
-        errors:
-          additionalProperties: true
-          type: object
-          title: Errors
-      additionalProperties: true
-      type: object
-      required:
-      - results
-      title: LotOrganisations
-      description: Réponse batch `?ids=List(...)` — `statuses` porte le code PAR id.
-    NomLocalise:
+      - message
+      - status
+      title: LinkedInError
+      description: 'The flat error body of the versioned APIs.
+
+
+        Attested: `{"message", "serviceErrorCode", "status"}` (401 with no
+
+        token) and the `code` variants (VERSION_MISSING, NONEXISTENT_VERSION).'
+    LocalizedName:
       properties:
         localized:
           additionalProperties:
@@ -1132,14 +906,44 @@ components:
           type: object
           title: Localized
         preferredLocale:
-          $ref: '#/components/schemas/LocaleOrganisation'
+          $ref: '#/components/schemas/OrganizationLocale'
       additionalProperties: true
       type: object
       required:
       - localized
       - preferredLocale
-      title: NomLocalise
-    Organisation:
+      title: LocalizedName
+    MediaContent:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: urn:li:video:… | urn:li:image:… | urn:li:document:…
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      additionalProperties: true
+      type: object
+      required:
+      - id
+      title: MediaContent
+    NetworkSize:
+      properties:
+        firstDegreeSize:
+          type: integer
+          title: Firstdegreesize
+      additionalProperties: true
+      type: object
+      required:
+      - firstDegreeSize
+      title: NetworkSize
+      description: '`GET /rest/networkSizes/{urn}?edgeType=COMPANY_FOLLOWED_BY_MEMBER`
+        —
+
+        THE follower total (follower statistics no longer carry a total).'
+    Organization:
       properties:
         vanityName:
           type: string
@@ -1148,9 +952,9 @@ components:
           type: string
           title: Localizedname
         name:
-          $ref: '#/components/schemas/NomLocalise'
+          $ref: '#/components/schemas/LocalizedName'
         defaultLocale:
-          $ref: '#/components/schemas/LocaleOrganisation'
+          $ref: '#/components/schemas/OrganizationLocale'
         organizationType:
           type: string
           title: Organizationtype
@@ -1238,11 +1042,203 @@ components:
       - versionTag
       - id
       - $URN
-      title: Organisation
-      description: '`GET /rest/organizations/{id}` — entité plate Rest.li ; `id` est
-        un
+      title: Organization
+      description: '`GET /rest/organizations/{id}` — flat Rest.li entity; `id` is
+        a
 
-        NOMBRE et `$URN` est présent (relevé officiel).'
+        NUMBER and `$URN` is present (recorded from the official trace).'
+    OrganizationLocale:
+      properties:
+        country:
+          type: string
+          title: Country
+        language:
+          type: string
+          title: Language
+      additionalProperties: true
+      type: object
+      required:
+      - country
+      - language
+      title: OrganizationLocale
+    OrganizationsBatch:
+      properties:
+        results:
+          additionalProperties:
+            $ref: '#/components/schemas/Organization'
+          type: object
+          title: Results
+        statuses:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Statuses
+        errors:
+          additionalProperties: true
+          type: object
+          title: Errors
+      additionalProperties: true
+      type: object
+      required:
+      - results
+      title: OrganizationsBatch
+      description: Batch response `?ids=List(...)` — `statuses` carries the code PER
+        id.
+    PageClicks:
+      properties:
+        desktopCustomButtonClickCounts:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Desktopcustombuttonclickcounts
+        mobileCustomButtonClickCounts:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Mobilecustombuttonclickcounts
+      additionalProperties: true
+      type: object
+      title: PageClicks
+    PageFacet:
+      properties:
+        pageStatistics:
+          additionalProperties:
+            additionalProperties:
+              $ref: '#/components/schemas/PageViews'
+            type: object
+          type: object
+          title: Pagestatistics
+        geo:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Geo
+        function:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Function
+        industryV2:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Industryv2
+        seniority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Seniority
+        staffCountRange:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Staffcountrange
+      additionalProperties: true
+      type: object
+      required:
+      - pageStatistics
+      title: PageFacet
+    PageStatistics:
+      properties:
+        clicks:
+          anyOf:
+          - $ref: '#/components/schemas/PageClicks'
+          - type: 'null'
+        views:
+          additionalProperties:
+            $ref: '#/components/schemas/PageViews'
+          type: object
+          title: Views
+      additionalProperties: true
+      type: object
+      required:
+      - views
+      title: PageStatistics
+      description: '`totalPageStatistics` — lifetime: 15 view counters, verified
+
+        arithmetic (all = desktop + mobile = overview + careers; careers = jobs +
+
+        lifeAt). Time-bound: reduced set of families, with uniquePageViews.'
+    PageStatsElement:
+      properties:
+        timeRange:
+          anyOf:
+          - $ref: '#/components/schemas/TimeRange'
+          - type: 'null'
+        pageStatisticsByGeoCountry:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PageFacet'
+            type: array
+          - type: 'null'
+          title: Pagestatisticsbygeocountry
+        pageStatisticsByFunction:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PageFacet'
+            type: array
+          - type: 'null'
+          title: Pagestatisticsbyfunction
+        pageStatisticsByIndustryV2:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PageFacet'
+            type: array
+          - type: 'null'
+          title: Pagestatisticsbyindustryv2
+        pageStatisticsByGeo:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PageFacet'
+            type: array
+          - type: 'null'
+          title: Pagestatisticsbygeo
+        pageStatisticsBySeniority:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PageFacet'
+            type: array
+          - type: 'null'
+          title: Pagestatisticsbyseniority
+        pageStatisticsByStaffCountRange:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PageFacet'
+            type: array
+          - type: 'null'
+          title: Pagestatisticsbystaffcountrange
+        totalPageStatistics:
+          $ref: '#/components/schemas/PageStatistics'
+        organization:
+          type: string
+          title: Organization
+      additionalProperties: true
+      type: object
+      required:
+      - totalPageStatistics
+      - organization
+      title: PageStatsElement
+    PageViews:
+      properties:
+        pageViews:
+          type: integer
+          title: Pageviews
+        uniquePageViews:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Uniquepageviews
+          x-linkedin-confidence: unverified
+          x-linkedin-note: present in the time buckets of the official examples, but
+            the exact subset of families that carries it is inconsistent from one
+            example to another
+      additionalProperties: true
+      type: object
+      required:
+      - pageViews
+      title: PageViews
     Paging:
       properties:
         start:
@@ -1258,8 +1254,8 @@ components:
           type: array
           title: Links
           x-linkedin-confidence: unverified
-          x-linkedin-note: toujours [] dans chaque exemple officiel ; la forme d'une
-            entrée non vide n'est documentée nulle part
+          x-linkedin-note: always [] in every official example; the shape of a non-empty
+            entry is documented nowhere
         total:
           anyOf:
           - type: integer
@@ -1271,36 +1267,20 @@ components:
       - start
       - count
       title: Paging
-      description: 'Le bloc `paging` — pagination par index `start`/`count`.
+      description: 'The `paging` block — index pagination via `start`/`count`.
 
 
-        Fin de données = page plus courte que `count`. `total` n''apparaît que sur
+        End of data = a page shorter than `count`. `total` only appears on
 
-        certains finders (organizations) — jamais sur posts ni sur les
+        certain finders (organizations) — never on posts or on the statistics: a
 
-        statistiques : un consommateur ne doit PAS s''y adosser.'
-    PlageTemporelle:
-      properties:
-        start:
-          type: integer
-          title: Start
-          description: Epoch ms, minuit UTC, inclusif.
-        end:
-          type: integer
-          title: End
-          description: Epoch ms, minuit UTC, exclusif.
-      additionalProperties: true
-      type: object
-      required:
-      - start
-      - end
-      title: PlageTemporelle
+        consumer must NOT rely on it.'
     Post:
       properties:
         id:
           type: string
           title: Id
-          description: urn:li:share:{19 chiffres} | urn:li:ugcPost:{19 chiffres}
+          description: urn:li:share:{19 digits} | urn:li:ugcPost:{19 digits}
         author:
           type: string
           title: Author
@@ -1308,26 +1288,26 @@ components:
         commentary:
           type: string
           title: Commentary
-          description: Texte du post. Hashtags en gabarit little-format `{hashtag|\#|WeAreHiring}`,
-            mentions `@[Nom](urn:li:organization:…)`.
+          description: Post text. Hashtags as little-format template `{hashtag|\#|WeAreHiring}`,
+            mentions `@[Name](urn:li:organization:…)`.
         createdAt:
           type: integer
           title: Createdat
-          description: Epoch millisecondes.
+          description: Epoch milliseconds.
         publishedAt:
           type: integer
           title: Publishedat
-          description: Epoch millisecondes.
+          description: Epoch milliseconds.
         lastModifiedAt:
           type: integer
           title: Lastmodifiedat
-          description: Epoch millisecondes — bougé par une édition.
+          description: Epoch milliseconds — moved by an edit.
         lifecycleState:
           type: string
           title: Lifecyclestate
           description: PUBLISHED | DRAFT | PUBLISH_REQUESTED | PUBLISH_FAILED
         lifecycleStateInfo:
-          $ref: '#/components/schemas/InfoCycleDeVie'
+          $ref: '#/components/schemas/LifecycleInfo'
         visibility:
           type: string
           title: Visibility
@@ -1340,15 +1320,15 @@ components:
           default: false
         content:
           anyOf:
-          - $ref: '#/components/schemas/ContenuPost'
+          - $ref: '#/components/schemas/PostContent'
           - type: 'null'
           x-linkedin-confidence: unverified
-          x-linkedin-note: émis `{}` sur certains éléments du finder officiel et absent
-            sur d'autres — la règle d'émission n'est pas documentée ; le mock sert
-            les deux variantes
+          x-linkedin-note: emitted as `{}` on some elements of the official finder
+            and absent on others — the emission rule isn't documented; the mock serves
+            both variants
         reshareContext:
           anyOf:
-          - $ref: '#/components/schemas/ContexteRepartage'
+          - $ref: '#/components/schemas/ReshareContext'
           - type: 'null'
       additionalProperties: true
       type: object
@@ -1364,35 +1344,44 @@ components:
       - visibility
       - distribution
       title: Post
-    StatistiquesPage:
+    PostContent:
       properties:
-        clicks:
+        media:
           anyOf:
-          - $ref: '#/components/schemas/ClicsPage'
+          - $ref: '#/components/schemas/MediaContent'
           - type: 'null'
-        views:
-          additionalProperties:
-            $ref: '#/components/schemas/VuesPage'
-          type: object
-          title: Views
+        article:
+          anyOf:
+          - $ref: '#/components/schemas/ArticleContent'
+          - type: 'null'
+      additionalProperties: true
+      type: object
+      title: PostContent
+      description: The `content` block — `{}` on some text posts, absent on others.
+    ReshareContext:
+      properties:
+        parent:
+          type: string
+          title: Parent
+        root:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Root
       additionalProperties: true
       type: object
       required:
-      - views
-      title: StatistiquesPage
-      description: '`totalPageStatistics` — vie entière : 15 compteurs de vues, arithmétique
-
-        vérifiée (all = desktop + mobile = overview + careers ; careers = jobs +
-
-        lifeAt). Time-bound : jeu de familles réduit, avec uniquePageViews.'
-    StatistiquesPartage:
+      - parent
+      title: ReshareContext
+      description: 'Present on reshares: the relayed post (`parent`) and its origin.'
+    ShareStatistics:
       properties:
         uniqueImpressionsCount:
           anyOf:
           - type: integer
           - type: 'null'
           title: Uniqueimpressionscount
-          description: Présent sur les agrégats vie-entière ; OMIS des buckets temporels.
+          description: Present on lifetime aggregates; OMITTED from time buckets.
         clickCount:
           type: integer
           title: Clickcount
@@ -1420,26 +1409,57 @@ components:
       - commentCount
       - shareCount
       - impressionCount
-      title: StatistiquesPartage
-      description: '`totalShareStatistics` — engagement = (clics + réactions + commentaires
+      title: ShareStatistics
+      description: '`totalShareStatistics` — engagement = (clicks + reactions + comments
 
-        + partages) / impressions, formule vérifiée numériquement sur les exemples
+        + shares) / impressions, formula verified numerically against the
 
-        officiels.'
-    TailleReseau:
+        official examples.'
+    ShareStatsElement:
       properties:
-        firstDegreeSize:
-          type: integer
-          title: Firstdegreesize
+        timeRange:
+          anyOf:
+          - $ref: '#/components/schemas/TimeRange'
+          - type: 'null'
+        totalShareStatistics:
+          $ref: '#/components/schemas/ShareStatistics'
+        share:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+          description: Present in per-share mode (share URN).
+        ugcPost:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ugcpost
+          description: Present in per-ugcPost mode.
+        organizationalEntity:
+          type: string
+          title: Organizationalentity
       additionalProperties: true
       type: object
       required:
-      - firstDegreeSize
-      title: TailleReseau
-      description: '`GET /rest/networkSizes/{urn}?edgeType=COMPANY_FOLLOWED_BY_MEMBER`
-        —
-
-        LE total d''abonnés (les follower statistics n''ont plus de total).'
+      - totalShareStatistics
+      - organizationalEntity
+      title: ShareStatsElement
+    TimeRange:
+      properties:
+        start:
+          type: integer
+          title: Start
+          description: Epoch ms, midnight UTC, inclusive.
+        end:
+          type: integer
+          title: End
+          description: Epoch ms, midnight UTC, exclusive.
+      additionalProperties: true
+      type: object
+      required:
+      - start
+      - end
+      title: TimeRange
     ValidationError:
       properties:
         loc:
@@ -1466,22 +1486,3 @@ components:
       - msg
       - type
       title: ValidationError
-    VuesPage:
-      properties:
-        pageViews:
-          type: integer
-          title: Pageviews
-        uniquePageViews:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Uniquepageviews
-          x-linkedin-confidence: unverified
-          x-linkedin-note: présent dans les buckets temporels des exemples officiels,
-            mais le sous-ensemble exact de familles qui le porte est incohérent d'un
-            exemple à l'autre
-      additionalProperties: true
-      type: object
-      required:
-      - pageViews
-      title: VuesPage

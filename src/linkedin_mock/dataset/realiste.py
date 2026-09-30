@@ -1,36 +1,36 @@
-"""Le jeu de données : la page LinkedIn de « Boréal Conseil ».
+"""The dataset: the LinkedIn page of "Boréal Conseil".
 
-MÊME entreprise fictive que boondmanager-mock (ESN française de 34 personnes,
-data & IA) — la cohérence inter-mocks est délibérée : les deux mocks racontent
-la même société, l'un côté ERP, l'autre côté communication.
+SAME fictional company as boondmanager-mock (a 34-person French data & AI
+consultancy) — the cross-mock consistency is deliberate: both mocks tell the
+story of the same company, one on the ERP side, the other on the
+communication side.
 
-Ce que le générateur produit — et les endpoints ne font que DÉRIVER :
+What the generator produces — and the endpoints only DERIVE from it:
 
-  posts           72 publications sur ~24 mois, ~85 % `urn:li:share:` et ~15 %
-                  `urn:li:ugcPost:` (vidéos/documents), identifiants 19
-                  chiffres STRICTEMENT croissants avec le temps de publication
-                  (plausible, non attesté — cf. registre), commentaires
-                  français d'ESN : recrutement, fins de mission client avec
-                  mentions, événements, partenariats, articles, vie d'agence ;
-  séries par post impressions/clics/réactions/commentaires/partages PAR JOUR
-                  UTC, décroissance réaliste (pic à J0-J2, queue
-                  exponentielle, un post « viral » déterministe) — les
-                  compteurs vie-entière sont des SOMMES de ces buckets ;
-  abonnés         gains quotidiens organiques (pics les jours de post,
-                  quelques journées NÉGATIVES — désabonnements nets) + deux
-                  fenêtres de campagne payante ; le total /networkSizes vaut
-                  base + Σ gains ;
-  vues de page    baseline quotidienne, pics après chaque post, pics
-                  careers/jobs après les posts de recrutement ; les splits
-                  desktop/mobile et overview/careers/jobs/lifeAt tiennent
-                  l'arithmétique vérifiée de l'exemple officiel ;
-  démographies    des PARTS fixes par facette (matérialisées à la requête sur
-                  le total courant) — chaque facette couvre MOINS que le
-                  total, comme en réel (membres sans l'attribut absents), et
-                  `associationType` ne liste que les 34 salariés.
+  posts           72 publications over ~24 months, ~85% `urn:li:share:` and
+                  ~15% `urn:li:ugcPost:` (videos/documents), 19-digit
+                  identifiers STRICTLY increasing with publication time
+                  (plausible, not attested — cf. registry), French ESN-style
+                  comments: recruitment, client engagements wrapping up with
+                  mentions, events, partnerships, articles, agency life;
+  per-post series impressions/clicks/reactions/comments/shares PER UTC DAY,
+                  realistic decay (peak at J0-J2, exponential tail, one
+                  deterministic "viral" post) — lifetime counters are SUMS of
+                  these buckets;
+  followers       daily organic gains (spikes on post days, a few NEGATIVE
+                  days — net unfollows) + two paid campaign windows; the
+                  /networkSizes total equals base + Σ gains;
+  page views      daily baseline, spikes after each post, careers/jobs spikes
+                  after recruitment posts; the desktop/mobile and
+                  overview/careers/jobs/lifeAt splits hold the verified
+                  arithmetic of the official example;
+  demographics    fixed SHARES per facet (materialized at request time
+                  against the current total) — each facet covers LESS than
+                  the total, as in reality (members without the attribute
+                  absent), and `associationType` only lists the 34 staff.
 
-Déterminisme : `random.Random(seed)` et une ancre temporelle FIXE. Jamais
-`datetime.now()` — deux exécutions produisent le même monde à l'octet près.
+Determinism: `random.Random(seed)` and a FIXED time anchor. Never
+`datetime.now()` — two runs produce the same world byte for byte.
 """
 
 from __future__ import annotations
@@ -39,43 +39,42 @@ import random
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-# ── Ancre temporelle ─────────────────────────────────────────────────────────
+# ── Time anchor ──────────────────────────────────────────────────────────────
 
-AUJOURDHUI = date(2026, 7, 15)
-#: Premier jour des séries (abonnés, vues) — la « création » de la page.
-DEBUT_SERIE = date(2024, 8, 1)
-#: Dernier jour de statistiques du jeu de base : J-2, la règle de
-#: disponibilité documentée des follower statistics, appliquée à tout le jeu.
-DERNIERE_STAT = date(2026, 7, 13)
-#: Plafond des `lastModifiedAt` du jeu de base — un curseur incrémental posé
-#: après doit rendre zéro post ; les événements d'évolution sont STRICTEMENT
-#: postérieurs (cf. evolution.EPOQUE).
-DERNIERE_MAJ = date(2026, 7, 12)
+TODAY = date(2026, 7, 15)
+#: First day of the series (followers, views) — the page's "creation".
+SERIES_START = date(2024, 8, 1)
+#: Last day of stats in the base dataset: J-2, the documented availability
+#: rule of follower statistics, applied across the whole dataset.
+LAST_STAT_DAY = date(2026, 7, 13)
+#: Ceiling of the base dataset's `lastModifiedAt` values — an incremental
+#: cursor placed after this must return zero posts; evolution events are
+#: STRICTLY later (cf. evolution.EPOCH).
+LAST_UPDATE_DAY = date(2026, 7, 12)
 
-#: Les salariés de Boréal Conseil — le même effectif que boondmanager-mock.
-NOMBRE_SALARIES = 34
+#: Boréal Conseil's staff — the same headcount as boondmanager-mock.
+STAFF_COUNT = 34
 
-ABONNES_BASE = 2612
+FOLLOWERS_BASE = 2612
 
 
-def _ms(jour: date, heure: int = 9, minute: int = 0, seconde: int = 0) -> int:
-    """Epoch millisecondes, UTC — l'unité de tous les horodatages LinkedIn."""
+def _ms(day: date, hour: int = 9, minute: int = 0, second: int = 0) -> int:
+    """Epoch milliseconds, UTC — the unit of every LinkedIn timestamp."""
     return int(
-        datetime(jour.year, jour.month, jour.day, heure, minute, seconde, tzinfo=UTC).timestamp()
-        * 1000
+        datetime(day.year, day.month, day.day, hour, minute, second, tzinfo=UTC).timestamp() * 1000
     )
 
 
-# ── Catalogues ───────────────────────────────────────────────────────────────
+# ── Catalogs ─────────────────────────────────────────────────────────────────
 
-#: Sociétés clientes FICTIVES mentionnées dans les posts (mentions `@[…](urn)`).
+#: FICTIONAL client companies mentioned in posts (`@[…](urn)` mentions).
 _CLIENTS: tuple[tuple[str, str], ...] = (
     ("Nexalis", "urn:li:organization:71054001"),
     ("Groupe Ardentis", "urn:li:organization:71054002"),
     ("Banque Hesperia", "urn:li:organization:71054003"),
 )
 
-_POSTS_RECRUTEMENT = (
+_POSTS_RECRUITMENT = (
     "Boréal Conseil recrute ! Nous cherchons un·e Data Engineer senior pour accompagner nos "
     "clients sur leurs plateformes data. {hashtag|\\#|WeAreHiring} {hashtag|\\#|DataEngineering}",
     "Notre équipe grandit : deux postes de Consultant·e BI ouverts à Paris. Venez construire "
@@ -87,7 +86,7 @@ _POSTS_RECRUTEMENT = (
     "Encadrement rapproché, vrai sujet, vraie prod. {hashtag|\\#|stage} {hashtag|\\#|dbt}",
 )
 
-_POSTS_CAS_CLIENT = (
+_POSTS_CLIENT_CASE = (
     "Fin de mission chez @[{client}]({urn}) : 18 mois pour refondre la plateforme data, "
     "diviser par trois les temps de traitement et former les équipes. Merci pour la "
     "confiance ! {hashtag|\\#|data}",
@@ -98,7 +97,7 @@ _POSTS_CAS_CLIENT = (
     "self-service. On a hâte de commencer. {hashtag|\\#|analytics}",
 )
 
-_POSTS_EVENEMENT = (
+_POSTS_EVENT = (
     "Nous serons au Salon Big Data & IA Paris cette semaine — venez parler pipelines, "
     "gouvernance et vraie vie de la data au stand B12. {hashtag|\\#|BigDataParis}",
     "Meetup ce jeudi dans nos locaux : « dbt en production, deux ans après ». Places "
@@ -109,7 +108,7 @@ _POSTS_EVENEMENT = (
     "l'ingénierie data, c'est le moment. {hashtag|\\#|DevoxxFR}",
 )
 
-_POSTS_PARTENARIAT = (
+_POSTS_PARTNERSHIP = (
     "Boréal Conseil est désormais partenaire dbt Labs. Une certification de plus au service "
     "de nos clients. {hashtag|\\#|dbt} {hashtag|\\#|partenariat}",
     "Notre équipe compte trois nouveaux certifiés Databricks Data Engineer Professional. "
@@ -129,7 +128,7 @@ _POSTS_ARTICLE = (
     "buzzword, que du vécu.",
 )
 
-_POSTS_VIE_AGENCE = (
+_POSTS_AGENCY_LIFE = (
     "Séminaire d'été : deux jours à Étretat pour souffler, célébrer les projets livrés et "
     "préparer la rentrée. {hashtag|\\#|VieDAgence}",
     "Bienvenue aux quatre consultant·e·s qui rejoignent Boréal Conseil ce mois-ci ! "
@@ -140,36 +139,36 @@ _POSTS_VIE_AGENCE = (
     "l'équipe. La suite s'annonce belle. {hashtag|\\#|anniversaire}",
 )
 
-_POSTS_VOEUX = (
+_POSTS_GREETINGS = (
     "Toute l'équipe de Boréal Conseil vous souhaite une excellente année ! Rétrospective : "
     "14 projets livrés, 6 recrutements, un meetup lancé. {hashtag|\\#|BonneAnnee}",
     "Belle trêve à toutes et à tous — on se retrouve en janvier, reposés et pleins "
     "d'idées. {hashtag|\\#|fetes}",
 )
 
-#: (catégorie, gabarits, poids) — le tirage est déterministe via rng.
+#: (category, templates, weight) — the draw is deterministic via rng.
 _CATEGORIES: tuple[tuple[str, tuple[str, ...], float], ...] = (
-    ("recrutement", _POSTS_RECRUTEMENT, 0.20),
-    ("cas_client", _POSTS_CAS_CLIENT, 0.15),
-    ("evenement", _POSTS_EVENEMENT, 0.15),
-    ("partenariat", _POSTS_PARTENARIAT, 0.10),
+    ("recruitment", _POSTS_RECRUITMENT, 0.20),
+    ("client_case", _POSTS_CLIENT_CASE, 0.15),
+    ("event", _POSTS_EVENT, 0.15),
+    ("partnership", _POSTS_PARTNERSHIP, 0.10),
     ("article", _POSTS_ARTICLE, 0.20),
-    ("vie_agence", _POSTS_VIE_AGENCE, 0.15),
-    ("voeux", _POSTS_VOEUX, 0.05),
+    ("agency_life", _POSTS_AGENCY_LIFE, 0.15),
+    ("greetings", _POSTS_GREETINGS, 0.05),
 )
 
-_TITRES_MEDIA = (
+_MEDIA_TITLES = (
     "Atelier data en 3 minutes",
     "Nos consultants sur le terrain",
     "Démo : un pipeline de bout en bout",
     "Rencontre avec l'équipe",
 )
 
-#: Facettes démographiques : (famille, clé d'entrée, ((segment, poids)…), couverture).
-#: Les poids somment à 1 par famille ; la couverture < 1 reproduit les membres
-#: sans l'attribut, absents des facettes réelles. Sémantique des entiers d'URN
-#: PLAUSIBLE, non attestée (cf. docs/UNVERIFIED-FIELDS.md).
-PARTS_DEMOGRAPHIE: tuple[tuple[str, str, tuple[tuple[str, float], ...], float], ...] = (
+#: Demographic facets: (family, entry key, ((segment, weight)…), coverage).
+#: Weights sum to 1 per family; coverage < 1 reproduces members without the
+#: attribute, absent from the real facets. Semantics of the URN integers are
+#: PLAUSIBLE, not attested (cf. docs/UNVERIFIED-FIELDS.md).
+DEMOGRAPHICS_SHARES: tuple[tuple[str, str, tuple[tuple[str, float], ...], float], ...] = (
     (
         "followerCountsByGeoCountry",
         "geo",
@@ -211,7 +210,7 @@ PARTS_DEMOGRAPHIE: tuple[tuple[str, str, tuple[tuple[str, float], ...], float], 
         "followerCountsByGeo",
         "geo",
         (
-            ("urn:li:geo:90009717", 0.52),  # région parisienne
+            ("urn:li:geo:90009717", 0.52),  # Paris region
             ("urn:li:geo:90009716", 0.11),
             ("urn:li:geo:90009710", 0.09),
             ("urn:li:geo:90009734", 0.28),
@@ -246,80 +245,80 @@ PARTS_DEMOGRAPHIE: tuple[tuple[str, str, tuple[tuple[str, float], ...], float], 
     ),
 )
 
-#: Les facettes de pageStatistics — mêmes segments, familles `pageStatisticsBy*`
-#: (l'industrie y est `industryV2`, particularité du dialecte réel).
-PARTS_PAGES: tuple[tuple[str, str, tuple[tuple[str, float], ...], float], ...] = tuple(
+#: The pageStatistics facets — same segments, `pageStatisticsBy*` families
+#: (industry is `industryV2` there, a quirk of the real dialect).
+PAGES_SHARES: tuple[tuple[str, str, tuple[tuple[str, float], ...], float], ...] = tuple(
     (
-        famille.replace("followerCountsBy", "pageStatisticsBy").replace(
+        family.replace("followerCountsBy", "pageStatisticsBy").replace(
             "ByIndustry", "ByIndustryV2"
         ),
-        "industryV2" if cle == "industry" else cle,
+        "industryV2" if key == "industry" else key,
         segments,
-        round(couverture - 0.04, 2),
+        round(coverage - 0.04, 2),
     )
-    for famille, cle, segments, couverture in PARTS_DEMOGRAPHIE
-    if famille != "followerCountsByAssociationType"
+    for family, key, segments, coverage in DEMOGRAPHICS_SHARES
+    if family != "followerCountsByAssociationType"
 )
 
 
 # ── Posts ────────────────────────────────────────────────────────────────────
 
 
-def _calendrier(rng: random.Random, nombre: int) -> list[date]:
-    """`nombre` jours de publication, étalés de DEBUT_SERIE à DERNIERE_MAJ-3.
+def _calendar(rng: random.Random, count: int) -> list[date]:
+    """`count` publication days, spread from SERIES_START to LAST_UPDATE_DAY-3.
 
-    Espacement régulier + gigue déterministe : la cadence d'une page qui
-    publie ~3 fois par mois, sans deux posts le même jour.
+    Regular spacing + deterministic jitter: the cadence of a page that
+    publishes ~3 times a month, never two posts on the same day.
     """
-    portee = (DERNIERE_MAJ - timedelta(days=3) - DEBUT_SERIE).days
-    jours: list[date] = []
-    occupe: set[date] = set()
-    for k in range(nombre):
-        base = DEBUT_SERIE + timedelta(days=round(k * portee / (nombre - 1)))
-        jour = base + timedelta(days=rng.randint(-3, 3))
-        jour = max(DEBUT_SERIE, min(jour, DERNIERE_MAJ - timedelta(days=3)))
-        while jour in occupe:
-            jour += timedelta(days=1)
-        occupe.add(jour)
-        jours.append(jour)
-    return sorted(jours)
+    span = (LAST_UPDATE_DAY - timedelta(days=3) - SERIES_START).days
+    days: list[date] = []
+    taken: set[date] = set()
+    for k in range(count):
+        base = SERIES_START + timedelta(days=round(k * span / (count - 1)))
+        day = base + timedelta(days=rng.randint(-3, 3))
+        day = max(SERIES_START, min(day, LAST_UPDATE_DAY - timedelta(days=3)))
+        while day in taken:
+            day += timedelta(days=1)
+        taken.add(day)
+        days.append(day)
+    return sorted(days)
 
 
-def _commentaire(rng: random.Random, categorie: str, gabarits: tuple[str, ...]) -> str:
-    texte = rng.choice(gabarits)
-    if categorie == "cas_client":
-        # PAS str.format() : les gabarits little-format `{hashtag|\#|…}` sont
-        # des accolades LITTÉRALES du dialecte LinkedIn, pas des placeholders.
+def _comment(rng: random.Random, category: str, templates: tuple[str, ...]) -> str:
+    text = rng.choice(templates)
+    if category == "client_case":
+        # NOT str.format(): the little-format templates `{hashtag|\#|…}` are
+        # LITERAL braces of the LinkedIn dialect, not placeholders.
         client, urn = rng.choice(_CLIENTS)
-        return texte.replace("{client}", client).replace("{urn}", urn)
-    return texte
+        return text.replace("{client}", client).replace("{urn}", urn)
+    return text
 
 
 def _posts(rng: random.Random, org_urn: str) -> list[dict[str, Any]]:
-    jours = _calendrier(rng, 72)
+    days = _calendar(rng, 72)
     categories = [c for c, _, _ in _CATEGORIES]
-    poids = [p for _, _, p in _CATEGORIES]
-    gabarits = {c: g for c, g, _ in _CATEGORIES}
+    weights = [p for _, _, p in _CATEGORIES]
+    templates = {c: g for c, g, _ in _CATEGORIES}
 
     posts: list[dict[str, Any]] = []
-    identifiant = 7_180_000_000_000_000_000
-    for index, jour in enumerate(jours):
-        identifiant += rng.randint(30, 120) * 10**14
-        categorie = rng.choices(categories, weights=poids, k=1)[0]
-        # Les vœux n'ont de sens qu'en fin/début d'année.
-        if categorie == "voeux" and jour.month not in (1, 12):
-            categorie = "vie_agence"
-        est_ugc = rng.random() < 0.15
-        urn = f"urn:li:ugcPost:{identifiant}" if est_ugc else f"urn:li:share:{identifiant}"
-        publie = _ms(jour, rng.randint(7, 10), rng.choice((0, 15, 30, 45)))
+    identifier = 7_180_000_000_000_000_000
+    for index, day in enumerate(days):
+        identifier += rng.randint(30, 120) * 10**14
+        category = rng.choices(categories, weights=weights, k=1)[0]
+        # Greetings only make sense at the end/start of the year.
+        if category == "greetings" and day.month not in (1, 12):
+            category = "agency_life"
+        is_ugc = rng.random() < 0.15
+        urn = f"urn:li:ugcPost:{identifier}" if is_ugc else f"urn:li:share:{identifier}"
+        published = _ms(day, rng.randint(7, 10), rng.choice((0, 15, 30, 45)))
 
         post: dict[str, Any] = {
             "id": urn,
             "author": org_urn,
-            "commentary": _commentaire(rng, categorie, gabarits[categorie]),
-            "createdAt": publie,
-            "publishedAt": publie,
-            "lastModifiedAt": publie,
+            "commentary": _comment(rng, category, templates[category]),
+            "createdAt": published,
+            "publishedAt": published,
+            "lastModifiedAt": published,
             "lifecycleState": "PUBLISHED",
             "lifecycleStateInfo": {"isEditedByAuthor": False},
             "visibility": "PUBLIC",
@@ -328,53 +327,54 @@ def _posts(rng: random.Random, org_urn: str) -> list[dict[str, Any]]:
                 "thirdPartyDistributionChannels": [],
             },
             "isReshareDisabledByAuthor": False,
-            # Clé INTERNE au générateur, retirée avant exposition.
-            "_categorie": categorie,
+            # Key INTERNAL to the generator, removed before exposure.
+            "_category": category,
         }
-        if est_ugc:
-            genre = "video" if rng.random() < 0.6 else "document"
+        if is_ugc:
+            kind = "video" if rng.random() < 0.6 else "document"
             post["content"] = {
                 "media": {
-                    "id": f"urn:li:{genre}:C56{identifiant % 10**10:010d}",
-                    "title": rng.choice(_TITRES_MEDIA),
+                    "id": f"urn:li:{kind}:C56{identifier % 10**10:010d}",
+                    "title": rng.choice(_MEDIA_TITLES),
                 }
             }
-        elif categorie == "article":
+        elif category == "article":
             post["content"] = {
                 "article": {
-                    "source": f"https://blog.boreal-conseil.example/{jour:%Y/%m}/article-{index}",
+                    "source": f"https://blog.boreal-conseil.example/{day:%Y/%m}/article-{index}",
                     "title": post["commentary"].split(" : ")[-1].split(".")[0][:80],
                     "description": "Le blog data & IA de Boréal Conseil.",
                 }
             }
         elif index in (10, 40):
-            # L'exemple officiel du finder montre `content: {}` sur un post
-            # texte — le mock sert les deux variantes (émission non attestée).
+            # The official finder example shows `content: {}` on a text post
+            # — the mock serves both variants (emission not attested).
             post["content"] = {}
         posts.append(post)
 
-    # Trois repartages : un post relaie un post plus ancien.
+    # Three reshares: a post relays an older post.
     for index in (24, 47, 63):
         parent = posts[index - rng.randint(4, 10)]["id"]
         posts[index]["reshareContext"] = {"parent": parent, "root": parent}
 
-    # Trois posts édités après publication — la matière du curseur lastModifiedAt.
+    # Three posts edited after publication — the material for the
+    # lastModifiedAt cursor.
     for index in (18, 39, 61):
-        publie_ms = int(posts[index]["publishedAt"])
-        edite = min(
-            publie_ms + rng.randint(1, 5) * 86_400_000 + rng.randint(0, 3600) * 1000,
-            _ms(DERNIERE_MAJ, 18),
+        published_ms = int(posts[index]["publishedAt"])
+        edited = min(
+            published_ms + rng.randint(1, 5) * 86_400_000 + rng.randint(0, 3600) * 1000,
+            _ms(LAST_UPDATE_DAY, 18),
         )
-        posts[index]["lastModifiedAt"] = edite
+        posts[index]["lastModifiedAt"] = edited
         posts[index]["lifecycleStateInfo"] = {"isEditedByAuthor": True}
 
     return posts
 
 
-# ── Séries quotidiennes par post ─────────────────────────────────────────────
+# ── Daily per-post series ────────────────────────────────────────────────────
 
-#: Poids de décroissance des 25 premiers jours (pic J0-J2, queue exponentielle).
-_DECROISSANCE: tuple[float, ...] = (
+#: Decay weights for the first 25 days (peak J0-J2, exponential tail).
+_DECAY: tuple[float, ...] = (
     0.35,
     0.25,
     0.12,
@@ -382,115 +382,115 @@ _DECROISSANCE: tuple[float, ...] = (
 )
 
 
-def _serie_post(
-    rng: random.Random, jour_publication: date, *, viral: bool
+def _post_series(
+    rng: random.Random, publish_day: date, *, viral: bool
 ) -> dict[str, dict[str, int]]:
-    vie = int(rng.lognormvariate(7.74, 0.9))  # médiane ≈ 2 300, P95 ≈ 10 000
+    lifetime_total = int(rng.lognormvariate(7.74, 0.9))  # median ≈ 2,300, P95 ≈ 10,000
     if viral:
-        vie *= 15
-    taux_clic = rng.uniform(0.015, 0.04)
-    taux_like = rng.uniform(0.010, 0.030)
-    taux_commentaire = rng.uniform(0.001, 0.006)
-    taux_partage = rng.uniform(0.001, 0.008)
+        lifetime_total *= 15
+    click_rate = rng.uniform(0.015, 0.04)
+    like_rate = rng.uniform(0.010, 0.030)
+    comment_rate = rng.uniform(0.001, 0.006)
+    share_rate = rng.uniform(0.001, 0.008)
 
-    serie: dict[str, dict[str, int]] = {}
-    for decalage, poids in enumerate(_DECROISSANCE):
-        jour = jour_publication + timedelta(days=decalage)
-        if jour > DERNIERE_STAT:
+    series: dict[str, dict[str, int]] = {}
+    for offset, weight in enumerate(_DECAY):
+        day = publish_day + timedelta(days=offset)
+        if day > LAST_STAT_DAY:
             break
-        impressions = round(vie * poids * rng.uniform(0.85, 1.15))
+        impressions = round(lifetime_total * weight * rng.uniform(0.85, 1.15))
         if impressions <= 0:
             continue
-        serie[jour.isoformat()] = {
+        series[day.isoformat()] = {
             "impressionCount": impressions,
-            "clickCount": round(impressions * taux_clic),
-            "likeCount": round(impressions * taux_like),
-            "commentCount": round(impressions * taux_commentaire),
-            "shareCount": round(impressions * taux_partage),
+            "clickCount": round(impressions * click_rate),
+            "likeCount": round(impressions * like_rate),
+            "commentCount": round(impressions * comment_rate),
+            "shareCount": round(impressions * share_rate),
         }
-    # La traîne : quelques impressions résiduelles jusqu'à J+60.
-    for decalage in range(len(_DECROISSANCE), 60):
-        jour = jour_publication + timedelta(days=decalage)
-        if jour > DERNIERE_STAT:
+    # The tail: a few residual impressions up to J+60.
+    for offset in range(len(_DECAY), 60):
+        day = publish_day + timedelta(days=offset)
+        if day > LAST_STAT_DAY:
             break
         impressions = rng.randint(0, 2)
         if impressions == 0:
             continue
-        serie[jour.isoformat()] = {
+        series[day.isoformat()] = {
             "impressionCount": impressions,
             "clickCount": 1 if rng.random() < 0.1 else 0,
             "likeCount": 0,
             "commentCount": 0,
             "shareCount": 0,
         }
-    return serie
+    return series
 
 
-# ── Abonnés ──────────────────────────────────────────────────────────────────
+# ── Followers ────────────────────────────────────────────────────────────────
 
-#: Deux campagnes payantes de deux semaines — les seuls gains `paid` du jeu.
-_CAMPAGNES: tuple[tuple[date, date], ...] = (
+#: Two two-week paid campaigns — the dataset's only `paid` gains.
+_CAMPAIGNS: tuple[tuple[date, date], ...] = (
     (date(2025, 10, 6), date(2025, 10, 19)),
     (date(2026, 2, 2), date(2026, 2, 15)),
 )
 
 
-def _serie_abonnes(rng: random.Random, jours_posts: set[date]) -> dict[str, dict[str, int]]:
-    serie: dict[str, dict[str, int]] = {}
-    jour = DEBUT_SERIE
-    while jour <= DERNIERE_STAT:
-        lendemain_de_post = (jour in jours_posts) or ((jour - timedelta(days=1)) in jours_posts)
-        organique = rng.randint(4, 14) if lendemain_de_post else rng.randint(0, 5)
+def _followers_series(rng: random.Random, post_days: set[date]) -> dict[str, dict[str, int]]:
+    series: dict[str, dict[str, int]] = {}
+    day = SERIES_START
+    while day <= LAST_STAT_DAY:
+        day_after_post = (day in post_days) or ((day - timedelta(days=1)) in post_days)
+        organic = rng.randint(4, 14) if day_after_post else rng.randint(0, 5)
         if rng.random() < 0.04:
-            # Un solde NET peut être négatif — des désabonnements, ça existe.
-            organique = -rng.randint(1, 3)
-        paye = rng.randint(4, 18) if any(a <= jour <= b for a, b in _CAMPAGNES) else 0
-        if organique or paye:
-            serie[jour.isoformat()] = {
-                "organicFollowerGain": organique,
-                "paidFollowerGain": paye,
+            # A NET balance can be negative — unfollows happen.
+            organic = -rng.randint(1, 3)
+        paid = rng.randint(4, 18) if any(a <= day <= b for a, b in _CAMPAIGNS) else 0
+        if organic or paid:
+            series[day.isoformat()] = {
+                "organicFollowerGain": organic,
+                "paidFollowerGain": paid,
             }
-        jour += timedelta(days=1)
-    return serie
+        day += timedelta(days=1)
+    return series
 
 
-# ── Vues de page ─────────────────────────────────────────────────────────────
+# ── Page views ───────────────────────────────────────────────────────────────
 
 
-def _serie_vues(
-    rng: random.Random, jours_posts: set[date], jours_recrutement: set[date]
+def _views_series(
+    rng: random.Random, post_days: set[date], recruitment_days: set[date]
 ) -> dict[str, dict[str, Any]]:
-    serie: dict[str, dict[str, Any]] = {}
-    jour = DEBUT_SERIE
-    while jour <= DERNIERE_STAT:
-        facteur = 1.0
-        for recul in (0, 1, 2):
-            if (jour - timedelta(days=recul)) in jours_posts:
-                facteur = max(facteur, rng.uniform(1.5, 3.0) / (1 + recul * 0.4))
-        accueil = round(rng.randint(12, 45) * facteur)
-        emplois = rng.randint(0, 3)
-        vie = rng.randint(0, 2)
-        for recul in (0, 1, 2, 3):
-            if (jour - timedelta(days=recul)) in jours_recrutement:
-                emplois = rng.randint(8, 25)
-                vie = rng.randint(3, 10)
+    series: dict[str, dict[str, Any]] = {}
+    day = SERIES_START
+    while day <= LAST_STAT_DAY:
+        factor = 1.0
+        for lookback in (0, 1, 2):
+            if (day - timedelta(days=lookback)) in post_days:
+                factor = max(factor, rng.uniform(1.5, 3.0) / (1 + lookback * 0.4))
+        overview = round(rng.randint(12, 45) * factor)
+        jobs = rng.randint(0, 3)
+        life_at = rng.randint(0, 2)
+        for lookback in (0, 1, 2, 3):
+            if (day - timedelta(days=lookback)) in recruitment_days:
+                jobs = rng.randint(8, 25)
+                life_at = rng.randint(3, 10)
                 break
-        serie[jour.isoformat()] = {
-            "overview": accueil,
-            "jobs": emplois,
-            "lifeAt": vie,
+        series[day.isoformat()] = {
+            "overview": overview,
+            "jobs": jobs,
+            "lifeAt": life_at,
             "part_bureau": round(rng.uniform(0.55, 0.75), 3),
             "part_uniques": round(rng.uniform(0.72, 0.85), 3),
         }
-        jour += timedelta(days=1)
-    return serie
+        day += timedelta(days=1)
+    return series
 
 
-# ── Organisation ─────────────────────────────────────────────────────────────
+# ── Organization ─────────────────────────────────────────────────────────────
 
 
-def _organisation(org_id: str) -> dict[str, Any]:
-    """`GET /rest/organizations/{id}` — `id` est un NOMBRE, `$URN` est présent."""
+def _organization(org_id: str) -> dict[str, Any]:
+    """`GET /rest/organizations/{id}` — `id` is a NUMBER, `$URN` is present."""
     return {
         "vanityName": "boreal-conseil",
         "localizedName": "Boréal Conseil",
@@ -536,7 +536,7 @@ def _organisation(org_id: str) -> dict[str, Any]:
     }
 
 
-# ── Assemblage ───────────────────────────────────────────────────────────────
+# ── Assembly ─────────────────────────────────────────────────────────────────
 
 
 def build_realiste_dataset(seed: int = 42, org_id: str = "40123456") -> dict[str, Any]:
@@ -544,33 +544,33 @@ def build_realiste_dataset(seed: int = 42, org_id: str = "40123456") -> dict[str
     org_urn = f"urn:li:organization:{org_id}"
 
     posts = _posts(rng, org_urn)
-    index_viral = len(posts) - 10  # un post récent, déterministe
+    viral_index = len(posts) - 10  # a recent post, deterministic
 
-    series_posts: dict[str, dict[str, dict[str, int]]] = {}
-    uniques_vie: dict[str, int] = {}
-    jours_posts: set[date] = set()
-    jours_recrutement: set[date] = set()
+    posts_series: dict[str, dict[str, dict[str, int]]] = {}
+    lifetime_uniques: dict[str, int] = {}
+    post_days: set[date] = set()
+    recruitment_days: set[date] = set()
     for index, post in enumerate(posts):
-        jour_publication = datetime.fromtimestamp(post["publishedAt"] / 1000, tz=UTC).date()
-        jours_posts.add(jour_publication)
-        if post["_categorie"] == "recrutement":
-            jours_recrutement.add(jour_publication)
-        serie = _serie_post(rng, jour_publication, viral=index == index_viral)
-        series_posts[post["id"]] = serie
-        impressions_vie = sum(b["impressionCount"] for b in serie.values())
-        uniques_vie[post["id"]] = round(impressions_vie * rng.uniform(0.62, 0.80))
-        del post["_categorie"]
+        publish_day = datetime.fromtimestamp(post["publishedAt"] / 1000, tz=UTC).date()
+        post_days.add(publish_day)
+        if post["_category"] == "recruitment":
+            recruitment_days.add(publish_day)
+        series = _post_series(rng, publish_day, viral=index == viral_index)
+        posts_series[post["id"]] = series
+        lifetime_impressions = sum(b["impressionCount"] for b in series.values())
+        lifetime_uniques[post["id"]] = round(lifetime_impressions * rng.uniform(0.62, 0.80))
+        del post["_category"]
 
     return {
-        "organisation": _organisation(org_id),
+        "organization": _organization(org_id),
         "posts": posts,
-        "series_posts": series_posts,
-        "uniques_vie": uniques_vie,
-        "abonnes_base": ABONNES_BASE,
-        "serie_abonnes": _serie_abonnes(rng, jours_posts),
-        "nombre_salaries": NOMBRE_SALARIES,
-        "parts_demographie": PARTS_DEMOGRAPHIE,
-        "parts_pages": PARTS_PAGES,
-        "serie_vues": _serie_vues(rng, jours_posts, jours_recrutement),
-        "debut_serie": DEBUT_SERIE,
+        "posts_series": posts_series,
+        "lifetime_uniques": lifetime_uniques,
+        "followers_base": FOLLOWERS_BASE,
+        "followers_series": _followers_series(rng, post_days),
+        "staff_count": STAFF_COUNT,
+        "demographics_shares": DEMOGRAPHICS_SHARES,
+        "pages_shares": PAGES_SHARES,
+        "views_series": _views_series(rng, post_days, recruitment_days),
+        "series_start": SERIES_START,
     }

@@ -1,31 +1,31 @@
-"""Assemblage de l'application FastAPI.
+"""FastAPI application assembly.
 
-UN pipeline par requête, dans cet ordre : injections → authentification →
-version → dialecte Rest.li → handler. Le dispatch des pannes précède
-l'authentification pour qu'`auth_reject` puisse la préempter, et toute route
-`/rest` passe par le même prélude — il ne peut pas y avoir de route « oubliée »
-où les pannes ne s'appliqueraient pas.
+ONE pipeline per request, in this order: injections → authentication →
+version → Rest.li dialect → handler. Failure dispatch precedes authentication
+so `auth_reject` can preempt it, and every `/rest` route goes through the same
+prelude — there can be no "forgotten" route where failures wouldn't apply.
 
-L'ordre auth-AVANT-version est une DÉCISION, pas un relevé : la précédence
-réelle des deux contrôles n'est pas documentée (cf. registre ; la sonde
-scripts/compare_real.py la mesure).
+The auth-BEFORE-version ordering is a DECISION, not a recorded fact: the real
+precedence of the two checks isn't documented (cf. registry; the
+scripts/compare_real.py probe measures it).
 
-La surface reproduit l'API versionnée (api.linkedin.com/rest, Community
-Management), confrontée à la doc officielle — monikers li-lms-2026-06/07 :
+The surface reproduces the versioned API (api.linkedin.com/rest, Community
+Management), checked against the official doc — monikers li-lms-2026-06/07:
 
-  • `GET /rest/posts?q=author` (finder), `?ids=List(...)` (batch), `/{urn}` ;
-  • `GET /rest/organizationalEntityShareStatistics` — vie entière, per-share
-    (`shares=`/`ugcPosts=`, zéro-stat OMIS), buckets via `timeIntervals` ;
-    la combinaison per-share + timeIntervals est REFUSÉE par défaut : la doc
-    dit « Time-bound statistics is not supported for specific share queries » ;
-  • `GET /rest/organizationalEntityFollowerStatistics` — 7 facettes en vie
-    entière, `followerGains` par bucket (DAY/WEEK/MONTH, start OBLIGATOIRE) ;
-  • `GET /rest/organizationPageStatistics` — piège du dialecte : le finder est
-    `q=organization` et le paramètre `organization` ;
+  • `GET /rest/posts?q=author` (finder), `?ids=List(...)` (batch), `/{urn}`;
+  • `GET /rest/organizationalEntityShareStatistics` — lifetime, per-share
+    (`shares=`/`ugcPosts=`, zero-stat OMITTED), buckets via `timeIntervals`;
+    the per-share + timeIntervals combination is REFUSED by default: the doc
+    is explicit that "Time-bound statistics is not supported for specific
+    share queries";
+  • `GET /rest/organizationalEntityFollowerStatistics` — 7 lifetime
+    demographic facets, `followerGains` per bucket (DAY/WEEK/MONTH, start
+    MANDATORY);
+  • `GET /rest/organizationPageStatistics` — dialect trap: the finder is
+    `q=organization` and the parameter `organization`;
   • `GET /rest/organizations/{id}` (+ batch, + q=vanityName),
-    `GET /rest/networkSizes/{urn}` ;
-  • les routes inconnues rendent l'enveloppe d'erreur LinkedIn, pas le 404
-    FastAPI.
+    `GET /rest/networkSizes/{urn}`;
+  • unknown routes render the LinkedIn error envelope, not the FastAPI 404.
 """
 
 from __future__ import annotations
@@ -38,90 +38,88 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import restli, stats
-from .auth import verifier_bearer
+from .auth import verify_bearer
 from .errors import (
     MSG_ORG_INACTIVE,
-    corps_erreur,
-    erreur,
-    erreur_acces_refuse,
-    erreur_quota,
-    erreur_route_inconnue,
-    erreur_token_expire,
-    erreur_token_invalide,
-    erreur_token_revoque,
-    erreur_token_vide,
-    erreur_version_inactive,
+    error,
+    error_access_denied,
+    error_body,
+    error_empty_token,
+    error_expired_token,
+    error_inactive_version,
+    error_invalid_token,
+    error_quota,
+    error_revoked_token,
+    error_unknown_route,
 )
 from .injection import engine
 from .models import (
-    REPONSES_ERREUR,
-    ElementStatsAbonnes,
-    ElementStatsPage,
-    ElementStatsPartage,
-    EnveloppeElements,
-    LotOrganisations,
-    Organisation,
+    ERROR_RESPONSES,
+    ElementsEnvelope,
+    FollowerStatsElement,
+    NetworkSize,
+    Organization,
+    OrganizationsBatch,
+    PageStatsElement,
     Post,
-    TailleReseau,
+    ShareStatsElement,
 )
 from .settings import settings
 from .state import state
-from .versioning import verifier_version
+from .versioning import verify_version
 
-_REJETS_AUTH = {
-    "empty": erreur_token_vide,
-    "invalid": erreur_token_invalide,
-    "expired": erreur_token_expire,
-    "revoked": erreur_token_revoque,
+_AUTH_REJECTIONS = {
+    "empty": error_empty_token,
+    "invalid": error_invalid_token,
+    "expired": error_expired_token,
+    "revoked": error_revoked_token,
 }
 
 
-def _dispatch_injections(path: str, rang_du_jour: int) -> JSONResponse | None:
-    """Le point de dispatch unique des pannes. Ordre significatif :
-    auth_reject préempte l'authentification réelle ; latency s'applique même
-    quand la requête finit par réussir ; rate_limit dépend du compteur du
-    jour ; status est la panne franche."""
-    if (regle := engine.first("auth_reject", path)) is not None and regle.consume():
-        return _REJETS_AUTH.get(regle.variant, erreur_token_invalide)()
+def _dispatch_injections(path: str, day_rank: int) -> JSONResponse | None:
+    """The single dispatch point for failures. Order matters:
+    auth_reject preempts real authentication; latency applies even when the
+    request ends up succeeding; rate_limit depends on the day's counter;
+    status is the outright failure."""
+    if (rule := engine.first("auth_reject", path)) is not None and rule.consume():
+        return _AUTH_REJECTIONS.get(rule.variant, error_invalid_token)()
 
-    if (regle := engine.first("latency", path)) is not None and regle.consume():
-        # Un vrai sleep : c'est le seul moyen d'éprouver un timeout côté client.
-        time.sleep(regle.seconds)
+    if (rule := engine.first("latency", path)) is not None and rule.consume():
+        # A real sleep: the only way to exercise a client timeout.
+        time.sleep(rule.seconds)
 
     if (
-        (regle := engine.first("rate_limit", path)) is not None
-        and rang_du_jour > regle.after_requests
-        and regle.consume()
+        (rule := engine.first("rate_limit", path)) is not None
+        and day_rank > rule.after_requests
+        and rule.consume()
     ):
-        # Quota JOURNALIER, sans Retry-After — le régime LinkedIn : le compteur
-        # repart à zéro à minuit UTC (virtuel), pas après un délai annoncé.
-        return erreur_quota()
+        # DAILY quota, no Retry-After — the LinkedIn regime: the counter
+        # resets to zero at virtual midnight UTC, not after an announced delay.
+        return error_quota()
 
-    if (regle := engine.first("status", path)) is not None and regle.consume():
-        return erreur(regle.status, f"mock: injected {regle.status} on {path}")
+    if (rule := engine.first("status", path)) is not None and rule.consume():
+        return error(rule.status, f"mock: injected {rule.status} on {path}")
     return None
 
 
-def _controles_transport(
-    request: Request, path: str, params: dict[str, str]
-) -> JSONResponse | None:
-    """Auth, version, protocole Rest.li — l'ordre auth-avant-version est une
-    décision documentée (précédence réelle non attestée)."""
-    if (refus := verifier_bearer(request)) is not None:
-        return refus
+def _transport_checks(request: Request, path: str, params: dict[str, str]) -> JSONResponse | None:
+    """Auth, version, Rest.li protocol — the auth-before-version ordering is a
+    documented decision (real precedence not attested)."""
+    if (refusal := verify_bearer(request)) is not None:
+        return refusal
 
-    if (regle := engine.first("version_reject", path)) is not None and regle.consume():
-        return erreur_version_inactive(request.headers.get("Linkedin-Version", "000000"))
+    if (rule := engine.first("version_reject", path)) is not None and rule.consume():
+        return error_inactive_version(request.headers.get("Linkedin-Version", "000000"))
 
-    if (refus := verifier_version(request)) is not None:
-        return refus
+    if (refusal := verify_version(request)) is not None:
+        return refusal
 
     if (
         settings.require_restli_2
-        and restli.syntaxe_2_utilisee(params)
+        and restli.uses_restli_2_syntax(params)
         and request.headers.get("X-Restli-Protocol-Version") != "2.0.0"
     ):
-        return erreur(
+        return error(
             400,
             "Rest.li 2.0 syntax requires the X-Restli-Protocol-Version: 2.0.0 header",
             code="RESTLI_PROTOCOL_VERSION_MISSING",
@@ -130,58 +128,60 @@ def _controles_transport(
 
 
 def _prelude(request: Request, path: str) -> JSONResponse | None:
-    """Le pipeline commun à toute route /rest : pannes, auth, version, Rest.li."""
+    """The pipeline common to every /rest route: failures, auth, version, Rest.li."""
     params = dict(request.query_params)
-    state.avancer_evolution(engine.now())
-    rang_du_jour = engine.observe(path, params, stats.jour_virtuel().isoformat())
+    state.advance_evolution(engine.now())
+    day_rank = engine.observe(path, params, stats.virtual_day().isoformat())
 
-    if (refus := _dispatch_injections(path, rang_du_jour)) is not None:
-        return refus
-    return _controles_transport(request, path, params)
+    if (refusal := _dispatch_injections(path, day_rank)) is not None:
+        return refusal
+    return _transport_checks(request, path, params)
 
 
-def _garde_finder(params: dict[str, str], q_attendu: str, param_entite: str) -> JSONResponse | None:
-    """Les gardes communs des finders de statistiques : `q` et l'URN d'entité."""
+def _finder_guard(
+    params: dict[str, str], expected_q: str, entity_param: str
+) -> JSONResponse | None:
+    """The common guards of the statistics finders: `q` and the entity URN."""
     q = params.get("q")
     if q is None:
-        return erreur(400, "Query parameter 'q' is required on this resource")
-    if q != q_attendu:
-        return erreur(400, f"Unknown query 'q={q}' on this resource")
-    entite = params.get(param_entite)
-    if entite is None:
-        return erreur(400, f"Parameter '{param_entite}' is required")
-    if restli.URN_ORGANISATION.match(entite) is None:
-        return erreur(400, f"Invalid urn type in {param_entite}: {entite}", code="INVALID_URN_TYPE")
-    if entite != settings.organization_urn:
-        return erreur_acces_refuse(f"the ADMIN_ONLY VisibilityReduction for {entite}")
+        return error(400, "Query parameter 'q' is required on this resource")
+    if q != expected_q:
+        return error(400, f"Unknown query 'q={q}' on this resource")
+    entity = params.get(entity_param)
+    if entity is None:
+        return error(400, f"Parameter '{entity_param}' is required")
+    if restli.URN_ORGANIZATION.match(entity) is None:
+        return error(400, f"Invalid urn type in {entity_param}: {entity}", code="INVALID_URN_TYPE")
+    if entity != settings.organization_urn:
+        return error_access_denied(f"the ADMIN_ONLY VisibilityReduction for {entity}")
     return None
 
 
-def _granularite_invalide(
-    intervalle: restli.Intervalle, autorisees: tuple[str, ...]
+def _invalid_granularity(
+    interval: restli.Interval, allowed: tuple[str, ...]
 ) -> JSONResponse | None:
-    if intervalle.granularite not in autorisees:
-        return erreur(
+    if interval.granularity not in allowed:
+        return error(
             400,
-            f"Invalid timeGranularityType: {intervalle.granularite!r} "
-            f"(expected one of {', '.join(autorisees)})",
+            f"Invalid timeGranularityType: {interval.granularity!r} "
+            f"(expected one of {', '.join(allowed)})",
         )
-    if intervalle.start_ms is None:
-        return erreur(400, "timeIntervals.timeRange.start is required")
+    if interval.start_ms is None:
+        return error(400, "timeIntervals.timeRange.start is required")
     return None
 
 
-def _fin_par_defaut(intervalle: restli.Intervalle) -> int:
-    if intervalle.end_ms is not None:
-        return intervalle.end_ms
-    return int(stats.maintenant_virtuel().timestamp() * 1000)
+def _default_end(interval: restli.Interval) -> int:
+    if interval.end_ms is not None:
+        return interval.end_ms
+    return int(stats.virtual_now().timestamp() * 1000)
 
 
 def _paging_echo(params: dict[str, str]) -> tuple[int, int]:
-    """Les statistiques ne paginent pas ; `paging` fait seulement écho aux
-    paramètres (comportement des exemples officiels : paging {count:10,
-    start:0} avec tous les éléments)."""
-    pagination = restli.lire_pagination(params, defaut=settings.default_count)
+    """Statistics don't paginate; `paging` merely echoes back the parameters
+    (behavior of the official examples: paging {count:10, start:0} with every
+    element)."""
+    pagination = restli.read_pagination(params, default=settings.default_count)
     return pagination if pagination is not None else (0, settings.default_count)
 
 
@@ -194,12 +194,12 @@ rest = APIRouter(prefix="/rest")
 
 
 @app.exception_handler(StarletteHTTPException)
-async def _erreur_http(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-    """Routes et méthodes inconnues : l'enveloppe LinkedIn, pas le 404 FastAPI."""
+async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Unknown routes and methods: the LinkedIn envelope, not the FastAPI 404."""
     if exc.status_code == 404:
-        return erreur_route_inconnue(request.url.path)
+        return error_unknown_route(request.url.path)
     if exc.status_code == 405:
-        return erreur(405, f"Method {request.method} not allowed", code="METHOD_NOT_ALLOWED")
+        return error(405, f"Method {request.method} not allowed", code="METHOD_NOT_ALLOWED")
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
@@ -212,8 +212,8 @@ def health() -> dict[str, str]:
 # ── Posts ────────────────────────────────────────────────────────────────────
 
 
-def _garde_auteur(params: dict[str, str]) -> JSONResponse | None:
-    """Les gardes du finder posts : `q=author` et l'URN de l'organisation."""
+def _author_guard(params: dict[str, str]) -> JSONResponse | None:
+    """The posts finder's guards: `q=author` and the organization's URN."""
     q = params.get("q")
     if q != "author":
         message = (
@@ -221,326 +221,330 @@ def _garde_auteur(params: dict[str, str]) -> JSONResponse | None:
             if q is None
             else f"Unknown query 'q={q}' on this resource"
         )
-        return erreur(400, message)
-    auteur = params.get("author")
-    if auteur is None:
-        return erreur(400, "Parameter 'author' is required")
-    if restli.URN_ORGANISATION.match(auteur) is None:
-        return erreur(400, f"Invalid urn type in author: {auteur}", code="INVALID_URN_TYPE")
-    if auteur != settings.organization_urn:
-        return erreur_acces_refuse(f"posts of {auteur}")
-    tri = params.get("sortBy", "LAST_MODIFIED")
-    if tri not in ("LAST_MODIFIED", "CREATED"):
-        return erreur(400, f"Invalid value for sortBy: {tri}", code="INVALID_VALUE_FOR_FIELD")
+        return error(400, message)
+    author = params.get("author")
+    if author is None:
+        return error(400, "Parameter 'author' is required")
+    if restli.URN_ORGANIZATION.match(author) is None:
+        return error(400, f"Invalid urn type in author: {author}", code="INVALID_URN_TYPE")
+    if author != settings.organization_urn:
+        return error_access_denied(f"posts of {author}")
+    sort_by = params.get("sortBy", "LAST_MODIFIED")
+    if sort_by not in ("LAST_MODIFIED", "CREATED"):
+        return error(400, f"Invalid value for sortBy: {sort_by}", code="INVALID_VALUE_FOR_FIELD")
     return None
 
 
 @rest.get(
     "/posts",
-    response_model=EnveloppeElements[Post],
-    responses=REPONSES_ERREUR,
+    response_model=ElementsEnvelope[Post],
+    responses=ERROR_RESPONSES,
     summary="Finder by author — the organization's posts",
     description=(
-        "Finder `q=author&author={urn}` : tri `sortBy=LAST_MODIFIED` (défaut) "
-        "ou `CREATED`, descendant ; pagination `start`/`count` (défaut 10, "
-        "plafond 100), fin de données = page courte. La MÊME route sert le "
-        "batch get `?ids=List(urn,urn)` — réponse `{results, statuses, errors}` "
-        "par URN, non décrite par ce schéma."
+        "Finder `q=author&author={urn}`: sort `sortBy=LAST_MODIFIED` (default) "
+        "or `CREATED`, descending; pagination `start`/`count` (default 10, "
+        "cap 100), end of data = short page. The SAME route serves the "
+        "batch get `?ids=List(urn,urn)` — response `{results, statuses, errors}` "
+        "per URN, not described by this schema."
     ),
 )
-def lister_posts(request: Request) -> JSONResponse:
+def list_posts(request: Request) -> JSONResponse:
     path = "/rest/posts"
-    if (refus := _prelude(request, path)) is not None:
-        return refus
+    if (refusal := _prelude(request, path)) is not None:
+        return refusal
     params = dict(request.query_params)
 
-    if (ids := restli.liste_urns(params, "ids")) is not None:
-        return _lot_posts(ids)
+    if (ids := restli.list_urns(params, "ids")) is not None:
+        return _posts_batch(ids)
 
-    if (refus := _garde_auteur(params)) is not None:
-        return refus
-    tri = params.get("sortBy", "LAST_MODIFIED")
-    pagination = restli.lire_pagination(
-        params, defaut=settings.default_count, plafond=settings.posts_count_cap
+    if (refusal := _author_guard(params)) is not None:
+        return refusal
+    sort_by = params.get("sortBy", "LAST_MODIFIED")
+    pagination = restli.read_pagination(
+        params, default=settings.default_count, cap=settings.posts_count_cap
     )
     if pagination is None:
-        return erreur(400, "Invalid pagination parameters: start/count")
+        return error(400, "Invalid pagination parameters: start/count")
     start, count = pagination
 
-    cle = "lastModifiedAt" if tri == "LAST_MODIFIED" else "createdAt"
-    tries = sorted(state.dataset["posts"], key=lambda p: (int(p[cle]), p["id"]), reverse=True)
+    key = "lastModifiedAt" if sort_by == "LAST_MODIFIED" else "createdAt"
+    sorted_posts = sorted(
+        state.dataset["posts"], key=lambda p: (int(p[key]), p["id"]), reverse=True
+    )
 
-    decalage = 0
-    regle = engine.first("page_drift", path)
-    if regle is not None and start > 0 and regle.consume():
-        # Un post publié entre deux pages : tout glisse d'un cran — un élément
-        # est servi deux fois (insert) ou jamais (remove). La raison d'être du
-        # merge sur clé côté pipeline.
-        decalage = -1 if regle.mode == "insert" else 1
+    offset = 0
+    rule = engine.first("page_drift", path)
+    if rule is not None and start > 0 and rule.consume():
+        # A post published between two pages: everything shifts by one — an
+        # element gets served twice (insert) or never (remove). The reason
+        # merge-on-key exists on the pipeline side.
+        offset = -1 if rule.mode == "insert" else 1
 
-    debut = max(0, start + decalage)
-    return JSONResponse(restli.enveloppe_elements(tries[debut : debut + count], start, count))
+    begin = max(0, start + offset)
+    return JSONResponse(restli.elements_envelope(sorted_posts[begin : begin + count], start, count))
 
 
-def _lot_posts(ids: list[str]) -> JSONResponse:
-    """`GET /rest/posts?ids=List(...)` — resultats/statuts/erreurs par URN."""
+def _posts_batch(ids: list[str]) -> JSONResponse:
+    """`GET /rest/posts?ids=List(...)` — results/statuses/errors per URN."""
     index = {p["id"]: p for p in state.dataset["posts"]}
-    resultats: dict[str, Any] = {}
-    erreurs: dict[str, Any] = {}
-    statuts: dict[str, int] = {}
+    results: dict[str, Any] = {}
+    errors: dict[str, Any] = {}
+    statuses: dict[str, int] = {}
     for urn in ids:
         if urn in index:
-            resultats[urn] = index[urn]
+            results[urn] = index[urn]
         else:
-            statuts[urn] = 404
-            erreurs[urn] = corps_erreur(404, f"Cannot find entity {urn}", code="NOT_FOUND")
-    return JSONResponse({"results": resultats, "statuses": statuts, "errors": erreurs})
+            statuses[urn] = 404
+            errors[urn] = error_body(404, f"Cannot find entity {urn}", code="NOT_FOUND")
+    return JSONResponse({"results": results, "statuses": statuses, "errors": errors})
 
 
 @rest.get(
     "/posts/{post_urn}",
     response_model=Post,
-    responses=REPONSES_ERREUR,
+    responses=ERROR_RESPONSES,
     summary="Get a post by URN (URL-encoded)",
 )
-def lire_post(request: Request, post_urn: str) -> JSONResponse:
-    if (refus := _prelude(request, f"/rest/posts/{post_urn}")) is not None:
-        return refus
+def get_post(request: Request, post_urn: str) -> JSONResponse:
+    if (refusal := _prelude(request, f"/rest/posts/{post_urn}")) is not None:
+        return refusal
     if restli.URN_POST.match(post_urn) is None:
-        return erreur(400, f"Invalid urn type in id: {post_urn}", code="INVALID_URN_TYPE")
+        return error(400, f"Invalid urn type in id: {post_urn}", code="INVALID_URN_TYPE")
     for post in state.dataset["posts"]:
         if post["id"] == post_urn:
             return JSONResponse(post)
-    return erreur(404, f"Cannot find entity {post_urn}", code="NOT_FOUND")
+    return error(404, f"Cannot find entity {post_urn}", code="NOT_FOUND")
 
 
-# ── Statistiques de partage ──────────────────────────────────────────────────
+# ── Share statistics ─────────────────────────────────────────────────────────
 
 
 @rest.get(
     "/organizationalEntityShareStatistics",
-    response_model=EnveloppeElements[ElementStatsPartage],
-    responses=REPONSES_ERREUR,
+    response_model=ElementsEnvelope[ShareStatsElement],
+    responses=ERROR_RESPONSES,
     summary="Share statistics — lifetime, per-share, or time-bound buckets",
     description=(
-        "Sans paramètre : l'agrégat organisation vie entière (fenêtre glissante "
-        "de 12 mois sur les buckets). `shares=List(...)`/`ugcPosts=List(...)` : "
-        "un élément par post ACTIF — les posts sans activité sont omis "
-        "(« can be assumed to have counts of 0 »). `timeIntervals=(timeRange:"
-        "(start:ms,end:ms),timeGranularityType:DAY|MONTH)` : un élément par "
-        "bucket. La combinaison per-share + timeIntervals est refusée par "
-        "défaut — comportement documenté de l'API réelle."
+        "No parameter: the organization-wide lifetime aggregate (rolling "
+        "12-month window on the buckets). `shares=List(...)`/`ugcPosts=List(...)`: "
+        "one element per ACTIVE post — posts with no activity are omitted "
+        '("can be assumed to have counts of 0"). `timeIntervals=(timeRange:'
+        "(start:ms,end:ms),timeGranularityType:DAY|MONTH)`: one element per "
+        "bucket. The per-share + timeIntervals combination is refused by "
+        "default — documented behavior of the real API."
     ),
 )
-def stats_partage(request: Request) -> JSONResponse:
-    if (refus := _prelude(request, "/rest/organizationalEntityShareStatistics")) is not None:
-        return refus
+def share_stats(request: Request) -> JSONResponse:
+    if (refusal := _prelude(request, "/rest/organizationalEntityShareStatistics")) is not None:
+        return refusal
     params = dict(request.query_params)
-    if (refus := _garde_finder(params, "organizationalEntity", "organizationalEntity")) is not None:
-        return refus
+    refusal = _finder_guard(params, "organizationalEntity", "organizationalEntity")
+    if refusal is not None:
+        return refusal
 
-    partages = restli.liste_urns(params, "shares")
-    ugc = restli.liste_urns(params, "ugcPosts")
+    shares = restli.list_urns(params, "shares")
+    ugc = restli.list_urns(params, "ugcPosts")
     urns: list[str] = []
-    for liste, prefixe in ((partages, "urn:li:share:"), (ugc, "urn:li:ugcPost:")):
-        for urn in liste or []:
-            if restli.URN_POST.match(urn) is None or not urn.startswith(prefixe):
-                return erreur(400, f"Invalid urn type: {urn}", code="INVALID_URN_TYPE")
+    for values, prefix in ((shares, "urn:li:share:"), (ugc, "urn:li:ugcPost:")):
+        for urn in values or []:
+            if restli.URN_POST.match(urn) is None or not urn.startswith(prefix):
+                return error(400, f"Invalid urn type: {urn}", code="INVALID_URN_TYPE")
             urns.append(urn)
 
-    intervalle = restli.parse_time_intervals(params)
+    interval = restli.parse_time_intervals(params)
     start, count = _paging_echo(params)
 
-    if intervalle is not None and urns and settings.strict_shares_timebound:
-        return erreur(400, "Time-bound statistics is not supported for specific share queries")
+    if interval is not None and urns and settings.strict_shares_timebound:
+        return error(400, "Time-bound statistics is not supported for specific share queries")
 
-    if intervalle is not None:
-        if (refus := _granularite_invalide(intervalle, stats.GRANULARITES_PARTAGE)) is not None:
-            return refus
-        elements = stats.elements_partage_buckets(
-            intervalle.start_ms or 0,
-            _fin_par_defaut(intervalle),
-            intervalle.granularite or "DAY",
+    if interval is not None:
+        if (refusal := _invalid_granularity(interval, stats.GRANULARITIES_SHARES)) is not None:
+            return refusal
+        elements = stats.share_bucket_elements(
+            interval.start_ms or 0,
+            _default_end(interval),
+            interval.granularity or "DAY",
             urns=urns or None,
         )
     elif urns:
-        elements = stats.elements_partage_par_post(urns)
+        elements = stats.share_elements_per_post(urns)
     else:
-        elements = [stats.element_partage_vie()]
-    return JSONResponse(restli.enveloppe_elements(elements, start, count))
+        elements = [stats.lifetime_share_element()]
+    return JSONResponse(restli.elements_envelope(elements, start, count))
 
 
-# ── Statistiques d'abonnés ───────────────────────────────────────────────────
+# ── Follower statistics ──────────────────────────────────────────────────────
 
 
 @rest.get(
     "/organizationalEntityFollowerStatistics",
-    response_model=EnveloppeElements[ElementStatsAbonnes],
-    responses=REPONSES_ERREUR,
+    response_model=ElementsEnvelope[FollowerStatsElement],
+    responses=ERROR_RESPONSES,
     summary="Follower statistics — demographics (lifetime) or daily gains",
     description=(
-        "Vie entière : les 7 familles de facettes démographiques (chacune "
-        "couvre MOINS que le total — le total vit sur /networkSizes). "
-        "Time-bound (DAY|WEEK|MONTH, `timeRange.start` OBLIGATOIRE) : "
-        "`followerGains` par bucket, données disponibles de J-365 à J-2 UTC."
+        "Lifetime: the 7 demographic facet families (each covers LESS than "
+        "the total — the total lives on /networkSizes). Time-bound "
+        "(DAY|WEEK|MONTH, `timeRange.start` MANDATORY): `followerGains` per "
+        "bucket, data available from J-365 to J-2 UTC."
     ),
 )
-def stats_abonnes(request: Request) -> JSONResponse:
-    if (refus := _prelude(request, "/rest/organizationalEntityFollowerStatistics")) is not None:
-        return refus
+def follower_stats(request: Request) -> JSONResponse:
+    if (refusal := _prelude(request, "/rest/organizationalEntityFollowerStatistics")) is not None:
+        return refusal
     params = dict(request.query_params)
-    if (refus := _garde_finder(params, "organizationalEntity", "organizationalEntity")) is not None:
-        return refus
+    refusal = _finder_guard(params, "organizationalEntity", "organizationalEntity")
+    if refusal is not None:
+        return refusal
 
-    intervalle = restli.parse_time_intervals(params)
+    interval = restli.parse_time_intervals(params)
     start, count = _paging_echo(params)
-    if intervalle is not None:
-        if (refus := _granularite_invalide(intervalle, stats.GRANULARITES_ABONNES)) is not None:
-            return refus
-        elements = stats.elements_abonnes_buckets(
-            intervalle.start_ms or 0,
-            _fin_par_defaut(intervalle),
-            intervalle.granularite or "DAY",
+    if interval is not None:
+        if (refusal := _invalid_granularity(interval, stats.GRANULARITIES_FOLLOWERS)) is not None:
+            return refusal
+        elements = stats.follower_bucket_elements(
+            interval.start_ms or 0,
+            _default_end(interval),
+            interval.granularity or "DAY",
         )
     else:
-        elements = [stats.element_abonnes_vie()]
-    return JSONResponse(restli.enveloppe_elements(elements, start, count))
+        elements = [stats.lifetime_followers_element()]
+    return JSONResponse(restli.elements_envelope(elements, start, count))
 
 
-# ── Statistiques de page ─────────────────────────────────────────────────────
+# ── Page statistics ──────────────────────────────────────────────────────────
 
 
 @rest.get(
     "/organizationPageStatistics",
-    response_model=EnveloppeElements[ElementStatsPage],
-    responses=REPONSES_ERREUR,
+    response_model=ElementsEnvelope[PageStatsElement],
+    responses=ERROR_RESPONSES,
     summary="Page statistics — views (lifetime) or daily buckets",
     description=(
-        "PIÈGE du dialecte : le finder est `q=organization` et le paramètre "
-        "`organization` — pas `organizationalEntity` comme les deux autres. "
-        "Vie entière : `totalPageStatistics` (15 compteurs de vues, "
-        "arithmétique vérifiée) + 6 facettes. Time-bound (DAY|MONTH) : jeu de "
-        "familles réduit, avec `uniquePageViews`."
+        "Dialect TRAP: the finder is `q=organization` and the parameter "
+        "`organization` — not `organizationalEntity` like the other two. "
+        "Lifetime: `totalPageStatistics` (15 view counters, verified "
+        "arithmetic) + 6 facets. Time-bound (DAY|MONTH): reduced set of "
+        "families, with `uniquePageViews`."
     ),
 )
-def stats_page(request: Request) -> JSONResponse:
-    if (refus := _prelude(request, "/rest/organizationPageStatistics")) is not None:
-        return refus
+def page_stats(request: Request) -> JSONResponse:
+    if (refusal := _prelude(request, "/rest/organizationPageStatistics")) is not None:
+        return refusal
     params = dict(request.query_params)
-    if (refus := _garde_finder(params, "organization", "organization")) is not None:
-        return refus
+    if (refusal := _finder_guard(params, "organization", "organization")) is not None:
+        return refusal
 
-    intervalle = restli.parse_time_intervals(params)
+    interval = restli.parse_time_intervals(params)
     start, count = _paging_echo(params)
-    if intervalle is not None:
-        if (refus := _granularite_invalide(intervalle, stats.GRANULARITES_PAGE)) is not None:
-            return refus
-        elements = stats.elements_page_buckets(
-            intervalle.start_ms or 0,
-            _fin_par_defaut(intervalle),
-            intervalle.granularite or "DAY",
+    if interval is not None:
+        if (refusal := _invalid_granularity(interval, stats.GRANULARITIES_PAGE)) is not None:
+            return refusal
+        elements = stats.page_bucket_elements(
+            interval.start_ms or 0,
+            _default_end(interval),
+            interval.granularity or "DAY",
         )
     else:
-        elements = [stats.element_page_vie()]
-    return JSONResponse(restli.enveloppe_elements(elements, start, count))
+        elements = [stats.lifetime_page_element()]
+    return JSONResponse(restli.elements_envelope(elements, start, count))
 
 
-# ── Organisations & réseau ───────────────────────────────────────────────────
+# ── Organizations & network ──────────────────────────────────────────────────
 
 
 @rest.get(
     "/organizations",
-    response_model=LotOrganisations,
-    responses=REPONSES_ERREUR,
+    response_model=OrganizationsBatch,
+    responses=ERROR_RESPONSES,
     summary="Batch get (?ids=List) or finder by vanityName",
     description=(
-        "Batch `?ids=List(40123456,27056405)` : `statuses` porte le code PAR "
-        "id (200/403). Finder `?q=vanityName&vanityName=…` : enveloppe "
-        "elements/paging avec `total` — un des rares finders qui l'émettent."
+        "Batch `?ids=List(40123456,27056405)`: `statuses` carries the code PER "
+        "id (200/403). Finder `?q=vanityName&vanityName=…`: elements/paging "
+        "envelope with `total` — one of the few finders that emit it."
     ),
 )
-def organisations(request: Request) -> JSONResponse:
-    if (refus := _prelude(request, "/rest/organizations")) is not None:
-        return refus
+def organizations(request: Request) -> JSONResponse:
+    if (refusal := _prelude(request, "/rest/organizations")) is not None:
+        return refusal
     params = dict(request.query_params)
-    organisation = state.dataset["organisation"]
+    organization = state.dataset["organization"]
 
-    if (ids := restli.liste_urns(params, "ids")) is not None:
-        resultats: dict[str, Any] = {}
-        statuts: dict[str, int] = {}
-        erreurs: dict[str, Any] = {}
-        for ident in ids:
-            if ident == settings.org_id:
-                resultats[ident] = organisation
-                statuts[ident] = 200
+    if (ids := restli.list_urns(params, "ids")) is not None:
+        results: dict[str, Any] = {}
+        statuses: dict[str, int] = {}
+        errors: dict[str, Any] = {}
+        for id_ in ids:
+            if id_ == settings.org_id:
+                results[id_] = organization
+                statuses[id_] = 200
             else:
-                statuts[ident] = 403
-                erreurs[ident] = corps_erreur(
+                statuses[id_] = 403
+                errors[id_] = error_body(
                     403,
                     "Viewer don't have permission to the ADMIN_ONLY VisibilityReduction "
-                    f"for urn:li:organization:{ident}",
+                    f"for urn:li:organization:{id_}",
                     service_error_code=100,
                     code="ACCESS_DENIED",
                 )
-        return JSONResponse({"results": resultats, "statuses": statuts, "errors": erreurs})
+        return JSONResponse({"results": results, "statuses": statuses, "errors": errors})
 
     q = params.get("q")
     if q != "vanityName":
-        return erreur(400, f"Unknown query 'q={q}' on this resource")
-    vanite = params.get("vanityName", "")
-    elements = [organisation] if vanite == organisation["vanityName"] else []
-    corps = restli.enveloppe_elements(elements, 0, 10)
-    corps["paging"]["total"] = len(elements)
-    return JSONResponse(corps)
+        return error(400, f"Unknown query 'q={q}' on this resource")
+    vanity = params.get("vanityName", "")
+    elements = [organization] if vanity == organization["vanityName"] else []
+    body = restli.elements_envelope(elements, 0, 10)
+    body["paging"]["total"] = len(elements)
+    return JSONResponse(body)
 
 
 @rest.get(
     "/organizations/{org_id}",
-    response_model=Organisation,
-    responses=REPONSES_ERREUR,
+    response_model=Organization,
+    responses=ERROR_RESPONSES,
     summary="Organization lookup — the credentials smoke test",
     description=(
-        "L'entité plate Rest.li : `id` est un NOMBRE et `$URN` est présent. "
-        "C'est l'appel que le connecteur fait AVANT d'ouvrir son pipeline — "
-        "l'analogue du current-user de BoondManager."
+        "The flat Rest.li entity: `id` is a NUMBER and `$URN` is present. "
+        "This is the call the connector makes BEFORE opening its pipeline — "
+        "the analogue of BoondManager's current-user."
     ),
 )
-def lire_organisation(request: Request, org_id: str) -> JSONResponse:
-    if (refus := _prelude(request, f"/rest/organizations/{org_id}")) is not None:
-        return refus
+def get_organization(request: Request, org_id: str) -> JSONResponse:
+    if (refusal := _prelude(request, f"/rest/organizations/{org_id}")) is not None:
+        return refusal
     if not org_id.isdigit():
-        return erreur(400, f"Invalid organization id: {org_id}")
+        return error(400, f"Invalid organization id: {org_id}")
     if org_id != settings.org_id:
-        return erreur(404, MSG_ORG_INACTIVE.format(org_id=org_id), code="NOT_FOUND")
-    return JSONResponse(state.dataset["organisation"])
+        return error(404, MSG_ORG_INACTIVE.format(org_id=org_id), code="NOT_FOUND")
+    return JSONResponse(state.dataset["organization"])
 
 
 @rest.get(
     "/networkSizes/{entity_urn}",
-    response_model=TailleReseau,
-    responses=REPONSES_ERREUR,
+    response_model=NetworkSize,
+    responses=ERROR_RESPONSES,
     summary="firstDegreeSize — THE follower total",
     description=(
-        "`?edgeType=COMPANY_FOLLOWED_BY_MEMBER` obligatoire. Les follower "
-        "statistics n'ont PLUS de total : il vit ici."
+        "`?edgeType=COMPANY_FOLLOWED_BY_MEMBER` mandatory. Follower "
+        "statistics no LONGER have a total: it lives here."
     ),
 )
-def taille_reseau(request: Request, entity_urn: str) -> JSONResponse:
-    if (refus := _prelude(request, f"/rest/networkSizes/{entity_urn}")) is not None:
-        return refus
+def network_size(request: Request, entity_urn: str) -> JSONResponse:
+    if (refusal := _prelude(request, f"/rest/networkSizes/{entity_urn}")) is not None:
+        return refusal
     if request.query_params.get("edgeType") != "COMPANY_FOLLOWED_BY_MEMBER":
-        return erreur(400, "Parameter 'edgeType' is required (COMPANY_FOLLOWED_BY_MEMBER)")
-    if restli.URN_ORGANISATION.match(entity_urn) is None:
-        return erreur(400, f"Invalid urn type: {entity_urn}", code="INVALID_URN_TYPE")
+        return error(400, "Parameter 'edgeType' is required (COMPANY_FOLLOWED_BY_MEMBER)")
+    if restli.URN_ORGANIZATION.match(entity_urn) is None:
+        return error(400, f"Invalid urn type: {entity_urn}", code="INVALID_URN_TYPE")
     if entity_urn != settings.organization_urn:
-        return erreur_acces_refuse(f"the ADMIN_ONLY VisibilityReduction for {entity_urn}")
-    return JSONResponse({"firstDegreeSize": stats.total_abonnes()})
+        return error_access_denied(f"the ADMIN_ONLY VisibilityReduction for {entity_urn}")
+    return JSONResponse({"firstDegreeSize": stats.total_followers()})
 
 
 app.include_router(rest)
 
-# Le plan de contrôle n'est pas « monté puis interdit » : quand il est
-# désactivé, la surface n'existe pas.
+# The control plane isn't "mounted then forbidden": when it's disabled, the
+# surface doesn't exist.
 if settings.admin_enabled:
     from .admin import router as admin_router
 
@@ -548,57 +552,58 @@ if settings.admin_enabled:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Le contrat
+#  The contract
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def contrat_openapi() -> dict[str, Any]:
-    """Le contrat OpenAPI — le DIALECTE LinkedIn, et lui seul.
+def openapi_contract() -> dict[str, Any]:
+    """The OpenAPI contract — the LinkedIn DIALECT, and only that.
 
-    Les chemins `/__admin` sont RETIRÉS : ce sont des affordances du mock, pas
-    du fournisseur — et le routeur n'est monté que si
-    LINKEDIN_MOCK_ADMIN_ENABLED est vrai, ce qui ferait dépendre le contrat de
-    l'environnement de génération.
+    The `/__admin` paths are REMOVED: they are mock affordances, not the
+    provider's — and the router is only mounted if
+    LINKEDIN_MOCK_ADMIN_ENABLED is true, which would make the contract depend
+    on the generation environment.
     """
     spec = app.openapi()
     spec["paths"] = {
-        chemin: op for chemin, op in spec["paths"].items() if not chemin.startswith("/__admin")
+        path: op for path, op in spec["paths"].items() if not path.startswith("/__admin")
     }
-    _elaguer_schemas_orphelins(spec)
+    _prune_orphan_schemas(spec)
     return spec
 
 
-def _elaguer_schemas_orphelins(spec: dict[str, Any]) -> None:
-    """Retire les schémas que plus aucun chemin ne référence.
+def _prune_orphan_schemas(spec: dict[str, Any]) -> None:
+    """Removes schemas that no path references any more.
 
-    Sans cet élagage, le contrat committé contiendrait `HTTPValidationError`
-    uniquement quand /__admin était monté au moment de la génération — et le
-    test anti-dérive échouerait selon l'environnement.
+    Without this pruning, the committed contract would contain
+    `HTTPValidationError` only when /__admin happened to be mounted at
+    generation time — and the anti-drift test would fail depending on the
+    environment.
     """
     schemas = spec.get("components", {}).get("schemas", {})
     if not schemas:
         return
 
-    def refs(noeud: Any) -> set[str]:
-        trouves: set[str] = set()
-        if isinstance(noeud, dict):
-            for cle, valeur in noeud.items():
-                if cle == "$ref" and isinstance(valeur, str):
-                    trouves.add(valeur.rsplit("/", 1)[-1])
+    def refs(node: Any) -> set[str]:
+        found: set[str] = set()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "$ref" and isinstance(value, str):
+                    found.add(value.rsplit("/", 1)[-1])
                 else:
-                    trouves |= refs(valeur)
-        elif isinstance(noeud, list):
-            for element in noeud:
-                trouves |= refs(element)
-        return trouves
+                    found |= refs(value)
+        elif isinstance(node, list):
+            for element in node:
+                found |= refs(element)
+        return found
 
-    gardes = refs(spec["paths"])
-    a_explorer = set(gardes)
-    while a_explorer:
-        nom = a_explorer.pop()
-        for suivant in refs(schemas.get(nom, {})):
-            if suivant not in gardes:
-                gardes.add(suivant)
-                a_explorer.add(suivant)
+    kept = refs(spec["paths"])
+    to_explore = set(kept)
+    while to_explore:
+        name = to_explore.pop()
+        for next_name in refs(schemas.get(name, {})):
+            if next_name not in kept:
+                kept.add(next_name)
+                to_explore.add(next_name)
 
-    spec["components"]["schemas"] = {n: c for n, c in schemas.items() if n in gardes}
+    spec["components"]["schemas"] = {n: c for n, c in schemas.items() if n in kept}

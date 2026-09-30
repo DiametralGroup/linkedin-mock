@@ -1,8 +1,8 @@
-"""État mutable du serveur.
+"""Mutable server state.
 
-`state.dataset`, `state.reset(seed=…)`, `state.avancer_evolution()` — le même
-contrat que boondmanager-mock, sans les caches de recherche (l'API LinkedIn
-mockée n'a ni `keywords` ni `included`).
+`state.dataset`, `state.reset(seed=…)`, `state.advance_evolution()` — the same
+contract as boondmanager-mock, minus the search caches (the mocked LinkedIn
+API has neither `keywords` nor `included`).
 """
 
 from __future__ import annotations
@@ -16,14 +16,14 @@ from .settings import settings
 
 
 def build_dataset(seed: int = 42, org_id: str | None = None) -> dict[str, Any]:
-    """Construit le jeu de données « Boréal Conseil sur LinkedIn »."""
+    """Builds the "Boréal Conseil on LinkedIn" dataset."""
     from .dataset.realiste import build_realiste_dataset
 
     return build_realiste_dataset(seed, org_id or settings.org_id)
 
 
 class MockState:
-    """État serveur mutable, pour simuler des changements distants et des pannes."""
+    """Mutable server state, for simulating remote changes and failures."""
 
     def __init__(self) -> None:
         self.dataset: dict[str, Any] = {}
@@ -32,41 +32,41 @@ class MockState:
         self.reset()
 
     def reset(self, seed: int | None = None) -> None:
-        """Reconstruit le jeu de données et remet les compteurs à zéro.
+        """Rebuilds the dataset and resets the counters to zero.
 
-        ⚠️ Les règles d'injection sont remises À LA LIGNE DE BASE DÉCLARÉE PAR
-        L'ENVIRONNEMENT, pas à vide : si un reset vidait les règles, la
-        première requête d'une suite de tests effacerait silencieusement un
-        quota journalier configuré au niveau du compose.
+        Injection rules are reset to the BASELINE DECLARED BY THE
+        ENVIRONMENT, not to empty: if a reset cleared the rules, the first
+        request of a test suite would silently wipe out a daily quota
+        configured at the compose level.
 
-        L'évolution temporelle est RÉARMÉE : la chronologie repart de zéro.
+        Time evolution is REARMED: the timeline starts over from zero.
         """
         self.seed = settings.seed if seed is None else seed
         self.dataset = build_dataset(self.seed)
         engine.clear()
         engine.reset_counters()
         self.evolution = Evolution(self.seed, time.time())
-        _appliquer_injections_de_base()
+        _apply_baseline_injections()
 
-    def avancer_evolution(self, maintenant: float) -> None:
-        """Fait avancer la vie de la page (les événements devenus dus)."""
-        self.evolution.avancer(self.dataset, maintenant)
+    def advance_evolution(self, now: float) -> None:
+        """Advances the page's life (the events that have become due)."""
+        self.evolution.advance(self.dataset, now)
 
     def totals(self) -> dict[str, int]:
-        """Les volumes que /__admin/state expose."""
-        jours_stats = {jour for serie in self.dataset["series_posts"].values() for jour in serie}
+        """The volumes that /__admin/state exposes."""
+        stats_days = {day for series in self.dataset["posts_series"].values() for day in series}
         return {
             "posts": len(self.dataset["posts"]),
-            "jours_stats": len(jours_stats),
-            "jours_abonnes": len(self.dataset["serie_abonnes"]),
-            "jours_vues": len(self.dataset["serie_vues"]),
+            "stats_days": len(stats_days),
+            "followers_days": len(self.dataset["followers_series"]),
+            "views_days": len(self.dataset["views_series"]),
         }
 
 
-def _appliquer_injections_de_base() -> None:
-    """Le quota journalier déclaré par l'environnement, réappliqué à chaque
-    reset — un compose peut faire tourner le mock en permanence contingenté
-    sans qu'un test ne l'annule par inadvertance."""
+def _apply_baseline_injections() -> None:
+    """The daily quota declared by the environment, reapplied on every reset —
+    a compose can run the mock permanently rate-limited without a test
+    accidentally cancelling it."""
     if settings.daily_quota > 0:
         engine.add(kind="rate_limit", scope="/rest/*", after_requests=settings.daily_quota)
 

@@ -1,4 +1,4 @@
-"""Jeux de données du mock — un seul : « Boréal Conseil » (realiste.py)."""
+"""Mock datasets — a single one: "Boréal Conseil" (realiste.py)."""
 
 from __future__ import annotations
 

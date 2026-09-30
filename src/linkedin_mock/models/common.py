@@ -1,14 +1,14 @@
-"""Modèles pydantic — la SOURCE du contrat OpenAPI.
+"""Pydantic models — the SOURCE of the OpenAPI contract.
 
-Même mécanique que boondmanager-mock : typer donne d'un coup le contrat, la
-documentation /docs et des formes exploitables par les consommateurs — mais
-typer pousse à INVENTER des champs. La parade est structurelle :
+Same mechanics as boondmanager-mock: typing gives the contract, the /docs
+documentation and consumer-usable shapes all at once — but typing pushes
+toward INVENTING fields. The safeguard is structural:
 
-  • `extra="allow"` partout — le modèle décrit ce qu'on SAIT, pas ce qui EST ;
-  • `x-linkedin-confidence` sur tout champ non adossé à un relevé ou à la doc
-    officielle (learn.microsoft.com, monikers li-lms-2026-06/07) ;
-  • un test échoue si un champ `unverified` n'est pas inscrit dans
-    docs/UNVERIFIED-FIELDS.md — l'honnêteté est une contrainte de build.
+  • `extra="allow"` everywhere — the model describes what we KNOW, not what IS;
+  • `x-linkedin-confidence` on every field not backed by a recorded trace or
+    the official doc (learn.microsoft.com, monikers li-lms-2026-06/07);
+  • a test fails if an `unverified` field isn't listed in
+    docs/UNVERIFIED-FIELDS.md — honesty is a build constraint.
 """
 
 from __future__ import annotations
@@ -19,40 +19,40 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 def unverified(description: str) -> dict[str, Any]:
-    """Marque un champ dont le nom ou la forme n'est PAS attesté.
+    """Marks a field whose name or shape is NOT attested.
 
-    À utiliser via `json_schema_extra`. Tout champ ainsi marqué DOIT figurer
-    dans `docs/UNVERIFIED-FIELDS.md` — `tests/test_contract_is_current.py` le
-    vérifie.
+    Used via `json_schema_extra`. Any field marked this way MUST appear in
+    `docs/UNVERIFIED-FIELDS.md` — `tests/test_contract_is_current.py`
+    verifies it.
     """
     return {"x-linkedin-confidence": "unverified", "x-linkedin-note": description}
 
 
 def invented(description: str) -> dict[str, Any]:
-    """Marque un champ ou un comportement qui n'existe PAS chez LinkedIn."""
+    """Marks a field or behavior that does NOT exist at LinkedIn."""
     return {"x-linkedin-confidence": "invented", "x-linkedin-note": description}
 
 
-class Permissif(BaseModel):
-    """Base commune : les champs inconnus passent au lieu d'être rejetés.
+class Permissive(BaseModel):
+    """Common base: unknown fields pass through instead of being rejected.
 
-    Un modèle strict transformerait chaque évolution de l'API réelle en panne
-    du mock. Les modèles décrivent ce qui est émis, pas tout ce que LinkedIn
-    peut exposer.
+    A strict model would turn every evolution of the real API into a mock
+    failure. Models describe what is emitted, not everything LinkedIn can
+    expose.
     """
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
-# ── Enveloppe Rest.li ────────────────────────────────────────────────────────
+# ── Rest.li envelope ─────────────────────────────────────────────────────────
 
 
-class Paging(Permissif):
-    """Le bloc `paging` — pagination par index `start`/`count`.
+class Paging(Permissive):
+    """The `paging` block — index pagination via `start`/`count`.
 
-    Fin de données = page plus courte que `count`. `total` n'apparaît que sur
-    certains finders (organizations) — jamais sur posts ni sur les
-    statistiques : un consommateur ne doit PAS s'y adosser.
+    End of data = a page shorter than `count`. `total` only appears on
+    certain finders (organizations) — never on posts or on the statistics: a
+    consumer must NOT rely on it.
     """
 
     start: int
@@ -60,15 +60,15 @@ class Paging(Permissif):
     links: list[dict[str, Any]] = Field(
         default_factory=list,
         json_schema_extra=unverified(
-            "toujours [] dans chaque exemple officiel ; la forme d'une entrée "
-            "non vide n'est documentée nulle part"
+            "always [] in every official example; the shape of a non-empty "
+            "entry is documented nowhere"
         ),
     )
     total: int | None = None
 
 
-class EnveloppeElements[T](BaseModel):
-    """`{"elements": [...], "paging": {...}}` — l'enveloppe de collection."""
+class ElementsEnvelope[T](BaseModel):
+    """`{"elements": [...], "paging": {...}}` — the collection envelope."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -76,63 +76,63 @@ class EnveloppeElements[T](BaseModel):
     elements: list[T]
 
 
-# ── Erreurs ──────────────────────────────────────────────────────────────────
+# ── Errors ───────────────────────────────────────────────────────────────────
 
 
-class ErreurLinkedIn(Permissif):
-    """Le corps d'erreur plat des API versionnées.
+class LinkedInError(Permissive):
+    """The flat error body of the versioned APIs.
 
-    Attesté : `{"message", "serviceErrorCode", "status"}` (401 sans jeton) et
-    les variantes à `code` (VERSION_MISSING, NONEXISTENT_VERSION).
+    Attested: `{"message", "serviceErrorCode", "status"}` (401 with no
+    token) and the `code` variants (VERSION_MISSING, NONEXISTENT_VERSION).
     """
 
     message: str
     serviceErrorCode: int | None = Field(
         default=None,
         json_schema_extra=unverified(
-            "les codes numériques des 401 invalid/expired/revoked (65600…) et "
-            "du 429 ne sont pas publiés par la doc officielle"
+            "the numeric codes for the 401 invalid/expired/revoked (65600…) "
+            "and for the 429 aren't published by the official doc"
         ),
     )
-    code: str | None = Field(default=None, description="Constante symbolique (VERSION_MISSING…).")
+    code: str | None = Field(default=None, description="Symbolic constant (VERSION_MISSING…).")
     status: int
 
 
-REPONSES_ERREUR: dict[int | str, dict[str, Any]] = {
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {
-        "model": ErreurLinkedIn,
+        "model": LinkedInError,
         "description": (
-            "Paramètre `q` absent ou inconnu, URN malformé, `count` hors "
-            "bornes, granularité invalide — ou en-tête `Linkedin-Version` "
-            "absent (`code: VERSION_MISSING`)."
+            "Missing or unknown `q` parameter, malformed URN, `count` out of "
+            "bounds, invalid granularity — or missing `Linkedin-Version` "
+            "header (`code: VERSION_MISSING`)."
         ),
     },
     401: {
-        "model": ErreurLinkedIn,
+        "model": LinkedInError,
         "description": (
-            "Jeton absent (`Empty oauth2_access_token`), invalide, expiré ou "
-            "révoqué. Un 401 n'est PAS retryable : c'est un état du jeton."
+            "Missing (`Empty oauth2_access_token`), invalid, expired or "
+            "revoked token. A 401 is NOT retryable: it's a token state."
         ),
     },
     403: {
-        "model": ErreurLinkedIn,
-        "description": "Organisation non administrée par le jeton (ACCESS_DENIED).",
+        "model": LinkedInError,
+        "description": "Organization not administered by the token (ACCESS_DENIED).",
     },
-    404: {"model": ErreurLinkedIn, "description": "Entité inconnue ou organisation inactive."},
+    404: {"model": LinkedInError, "description": "Unknown entity or inactive organization."},
     426: {
-        "model": ErreurLinkedIn,
+        "model": LinkedInError,
         "description": (
-            "Version retirée ou inexistante (`NONEXISTENT_VERSION`) — LinkedIn "
-            "retire une version ~12 mois après sa publication."
+            "Retired or nonexistent version (`NONEXISTENT_VERSION`) — LinkedIn "
+            "retires a version ~12 months after its release."
         ),
     },
     429: {
-        "model": ErreurLinkedIn,
+        "model": LinkedInError,
         "description": (
-            "Quota JOURNALIER atteint — remise à zéro à minuit UTC, SANS "
-            "en-tête Retry-After (différence clé avec BoondManager)."
+            "DAILY quota reached — reset at midnight UTC, WITHOUT a "
+            "Retry-After header (key difference from BoondManager)."
         ),
     },
-    500: {"model": ErreurLinkedIn, "description": "Panne injectée."},
-    503: {"model": ErreurLinkedIn, "description": "Panne transitoire injectée."},
+    500: {"model": LinkedInError, "description": "Injected failure."},
+    503: {"model": LinkedInError, "description": "Injected transient failure."},
 }

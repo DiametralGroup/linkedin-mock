@@ -1,25 +1,24 @@
-"""Le dialecte Rest.li — LE module sans équivalent boondmanager-mock.
+"""The Rest.li dialect — THE module with no boondmanager-mock equivalent.
 
-L'API versionnée parle Rest.li 2.0 : listes `List(a,b,c)`, objets parenthésés
-`(timeRange:(start:MS,end:MS),timeGranularityType:DAY)`, URN percent-encodés en
-position de valeur (`urn%3Ali%3Aorganization%3A40123456`). Sans l'en-tête
-`X-Restli-Protocol-Version: 2.0.0`, la requête est interprétée en protocole
-1.0 : paramètres pointés (`timeIntervals.timeRange.start=…`) et tableaux
-indexés (`shares[0]=…`).
+The versioned API speaks Rest.li 2.0: `List(a,b,c)` lists, parenthesized
+objects `(timeRange:(start:MS,end:MS),timeGranularityType:DAY)`, percent-encoded
+URNs in value position (`urn%3Ali%3Aorganization%3A40123456`). Without the
+`X-Restli-Protocol-Version: 2.0.0` header, the request is interpreted as
+protocol 1.0: dotted params (`timeIntervals.timeRange.start=…`) and indexed
+arrays (`shares[0]=…`).
 
-Ce que le parseur doit accepter — et que ce module centralise :
+What the parser must accept — and what this module centralizes:
 
-  • formes 2.0 brutes ET intégralement percent-encodées : Starlette décode une
-    fois la query string, donc `%28timeRange…%29` et `(timeRange…)` arrivent
-    identiques ; les exemples officiels montrent LES DEUX écritures ;
-  • formes 1.0 pointées/indexées, montrées par les mêmes pages de doc ;
-  • les virgules d'une List() ne sont jamais ambiguës : les URN n'en
-    contiennent pas.
+  • raw 2.0 forms AND fully percent-encoded ones: Starlette decodes the query
+    string once, so `%28timeRange…%29` and `(timeRange…)` arrive identical;
+    the official examples show BOTH spellings;
+  • 1.0 dotted/indexed forms, shown by the same doc pages;
+  • the commas of a List() are never ambiguous: URNs never contain any.
 
-L'enveloppe de réponse est `{"elements": [...], "paging": {start, count,
-links: []}}` — `links` est toujours vide ici : chaque exemple officiel le
-montre vide et sa forme non vide n'est pas documentée (cf. registre). Un
-consommateur pagine par arithmétique start/count et s'arrête sur page courte.
+The response envelope is `{"elements": [...], "paging": {start, count,
+links: []}}` — `links` is always empty here: every official example shows it
+empty and its non-empty form is undocumented (cf. registry). A consumer pages
+by start/count arithmetic and stops on a short page.
 """
 
 from __future__ import annotations
@@ -28,118 +27,117 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-_LISTE = re.compile(r"^List\((.*)\)$", re.DOTALL)
+_LIST = re.compile(r"^List\((.*)\)$", re.DOTALL)
 _START = re.compile(r"start:(\d+)")
 _END = re.compile(r"end:(\d+)")
-_GRANULARITE = re.compile(r"timeGranularityType:([A-Za-z_]+)")
-_INDEXE = re.compile(r"^(?P<nom>[A-Za-z]+)\[(?P<index>\d+)\]$")
+_GRANULARITY = re.compile(r"timeGranularityType:([A-Za-z_]+)")
+_INDEXED = re.compile(r"^(?P<name>[A-Za-z]+)\[(?P<index>\d+)\]$")
 
-URN_ORGANISATION = re.compile(r"^urn:li:organization:(\d+)$")
+URN_ORGANIZATION = re.compile(r"^urn:li:organization:(\d+)$")
 URN_POST = re.compile(r"^urn:li:(share|ugcPost):(\d+)$")
 
 
-def parse_liste(valeur: str) -> list[str] | None:
-    """`List(a,b,c)` → [a, b, c] — None si la valeur n'est pas une List()."""
-    m = _LISTE.match(valeur.strip())
+def parse_list(value: str) -> list[str] | None:
+    """`List(a,b,c)` → [a, b, c] — None if the value isn't a List()."""
+    m = _LIST.match(value.strip())
     if m is None:
         return None
-    interieur = m.group(1).strip()
-    if not interieur:
+    inner = m.group(1).strip()
+    if not inner:
         return []
-    return [element.strip() for element in interieur.split(",")]
+    return [element.strip() for element in inner.split(",")]
 
 
-def liste_urns(params: dict[str, str], nom: str) -> list[str] | None:
-    """Les URN d'un paramètre multi-valeurs, dans les DEUX protocoles.
+def list_urns(params: dict[str, str], name: str) -> list[str] | None:
+    """The URNs of a multi-valued parameter, in BOTH protocols.
 
-    2.0 : `shares=List(urn%3A…,urn%3A…)` ;
-    1.0 : `shares[0]=urn:…&shares[1]=urn:…` (ordre des index respecté).
-    Rend None si le paramètre est absent sous les deux formes.
+    2.0: `shares=List(urn%3A…,urn%3A…)`;
+    1.0: `shares[0]=urn:…&shares[1]=urn:…` (index order respected).
+    Returns None if the parameter is absent under both forms.
     """
-    if (valeur := params.get(nom)) is not None:
-        elements = parse_liste(valeur)
+    if (value := params.get(name)) is not None:
+        elements = parse_list(value)
         if elements is not None:
             return elements
-        # Valeur nue (un seul URN sans List()) — toléré, un stub ne casse pas.
-        return [valeur]
+        # Bare value (a single URN with no List()) — tolerated, a stub shouldn't break.
+        return [value]
     indexes: list[tuple[int, str]] = []
-    for cle, valeur in params.items():
-        m = _INDEXE.match(cle)
-        if m is not None and m.group("nom") == nom:
-            indexes.append((int(m.group("index")), valeur))
+    for key, value in params.items():
+        m = _INDEXED.match(key)
+        if m is not None and m.group("name") == name:
+            indexes.append((int(m.group("index")), value))
     if not indexes:
         return None
     return [v for _, v in sorted(indexes)]
 
 
 @dataclass(frozen=True)
-class Intervalle:
-    """Le paramètre `timeIntervals`, une fois décodé."""
+class Interval:
+    """The `timeIntervals` parameter, once decoded."""
 
     start_ms: int | None
     end_ms: int | None
-    granularite: str | None
+    granularity: str | None
 
 
-def parse_time_intervals(params: dict[str, str]) -> Intervalle | None:
-    """`timeIntervals` dans les deux protocoles, None s'il est absent.
+def parse_time_intervals(params: dict[str, str]) -> Interval | None:
+    """`timeIntervals` in both protocols, None if absent.
 
-    2.0 : `timeIntervals=(timeRange:(start:MS,end:MS),timeGranularityType:DAY)`
-          — l'ordre des clés n'est pas garanti, chaque morceau est cherché
-          indépendamment ;
-    1.0 : `timeIntervals.timeRange.start=MS&timeIntervals.timeGranularityType=DAY`.
+    2.0: `timeIntervals=(timeRange:(start:MS,end:MS),timeGranularityType:DAY)`
+         — key order isn't guaranteed, each piece is looked up independently;
+    1.0: `timeIntervals.timeRange.start=MS&timeIntervals.timeGranularityType=DAY`.
     """
-    if (valeur := params.get("timeIntervals")) is not None:
-        start = _START.search(valeur)
-        end = _END.search(valeur)
-        granularite = _GRANULARITE.search(valeur)
-        return Intervalle(
+    if (value := params.get("timeIntervals")) is not None:
+        start = _START.search(value)
+        end = _END.search(value)
+        granularity = _GRANULARITY.search(value)
+        return Interval(
             start_ms=int(start.group(1)) if start else None,
             end_ms=int(end.group(1)) if end else None,
-            granularite=granularite.group(1) if granularite else None,
+            granularity=granularity.group(1) if granularity else None,
         )
-    start_1 = params.get("timeIntervals.timeRange.start")
-    end_1 = params.get("timeIntervals.timeRange.end")
-    granularite_1 = params.get("timeIntervals.timeGranularityType")
-    if start_1 is None and end_1 is None and granularite_1 is None:
+    start_v1 = params.get("timeIntervals.timeRange.start")
+    end_v1 = params.get("timeIntervals.timeRange.end")
+    granularity_v1 = params.get("timeIntervals.timeGranularityType")
+    if start_v1 is None and end_v1 is None and granularity_v1 is None:
         return None
-    return Intervalle(
-        start_ms=int(start_1) if start_1 and start_1.isdigit() else None,
-        end_ms=int(end_1) if end_1 and end_1.isdigit() else None,
-        granularite=granularite_1,
+    return Interval(
+        start_ms=int(start_v1) if start_v1 and start_v1.isdigit() else None,
+        end_ms=int(end_v1) if end_v1 and end_v1.isdigit() else None,
+        granularity=granularity_v1,
     )
 
 
-def syntaxe_2_utilisee(params: dict[str, str]) -> bool:
-    """La requête emploie-t-elle la syntaxe Rest.li 2.0 ?
+def uses_restli_2_syntax(params: dict[str, str]) -> bool:
+    """Does the request use Rest.li 2.0 syntax?
 
-    Sert au garde-fou `LINKEDIN_MOCK_REQUIRE_RESTLI_2` : List() ou objet
-    parenthésé sans `X-Restli-Protocol-Version: 2.0.0`, c'est une requête qui
-    ne marchera probablement pas contre l'API réelle.
+    Feeds the `LINKEDIN_MOCK_REQUIRE_RESTLI_2` guard rail: a List() or a
+    parenthesized object without `X-Restli-Protocol-Version: 2.0.0` is a
+    request that probably won't work against the real API.
     """
     return any(v.startswith(("List(", "(")) for v in params.values())
 
 
-def lire_pagination(
-    params: dict[str, str], *, defaut: int, plafond: int | None = None
+def read_pagination(
+    params: dict[str, str], *, default: int, cap: int | None = None
 ) -> tuple[int, int] | None:
-    """(start, count) — None si illisible ou hors bornes (→ 400 côté appelant)."""
+    """(start, count) — None if unreadable or out of bounds (→ 400 on the caller side)."""
     try:
         start = int(params.get("start", "0"))
-        count = int(params.get("count", str(defaut)))
+        count = int(params.get("count", str(default)))
     except ValueError:
         return None
     if start < 0 or count < 1:
         return None
-    if plafond is not None and count > plafond:
+    if cap is not None and count > cap:
         return None
     return start, count
 
 
-def enveloppe_elements(elements: list[dict[str, Any]], start: int, count: int) -> dict[str, Any]:
-    """L'enveloppe Rest.li de collection — paging AVANT elements, comme les
-    exemples officiels (l'ordre des clés JSON n'engage à rien, mais autant
-    ressembler aux relevés)."""
+def elements_envelope(elements: list[dict[str, Any]], start: int, count: int) -> dict[str, Any]:
+    """The Rest.li collection envelope — paging BEFORE elements, like the
+    official examples (JSON key order carries no meaning, but might as well
+    resemble the recorded traces)."""
     return {
         "paging": {"start": start, "count": count, "links": []},
         "elements": elements,

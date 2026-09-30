@@ -1,30 +1,30 @@
-"""Statistiques — bucketing UTC, fenêtres glissantes, engagement recalculé.
+"""Statistics — UTC bucketing, rolling windows, recomputed engagement.
 
-Les séries INTERNES du jeu de données (impressions/clics/réactions par post et
-par jour UTC, gains d'abonnés, vues de page) sont la seule source ; tout ce que
-l'API sert en est DÉRIVÉ à la sérialisation :
+The dataset's INTERNAL series (impressions/clicks/reactions per post and per
+UTC day, follower gains, page views) are the sole source; everything the API
+serves is DERIVED from them at serialization time:
 
-  • les compteurs vie-entière sont des SOMMES des buckets — l'invariant
-    sum(daily) == lifetime tient par construction, pas par chance ;
-  • `engagement` est recalculé sur chaque élément servi :
-    (clicks + likes + comments + shares) / impressions — formule VÉRIFIÉE
-    numériquement sur les trois exemples officiels, 0 quand il n'y a pas
-    d'impression ;
-  • les buckets quotidiens OMETTENT `uniqueImpressionsCount` (l'exemple
-    officiel ne le porte que sur un bucket, sous un nom typographié — émission
-    réelle non attestée, cf. registre) ; l'agrégat vie-entière le porte.
+  • lifetime counters are SUMS of the buckets — the invariant
+    sum(daily) == lifetime holds by construction, not by luck;
+  • `engagement` is recomputed on every element served:
+    (clicks + likes + comments + shares) / impressions — formula VERIFIED
+    numerically against the three official examples, 0 when there are no
+    impressions;
+  • daily buckets OMIT `uniqueImpressionsCount` (the official example only
+    carries it on one bucket, under a typo'd name — real emission not
+    attested, cf. registry); the lifetime aggregate carries it.
 
-Fenêtres reproduites (doc officielle) :
+Windows reproduced (official doc):
 
-  partage   « rolling 12-month window » — les buckets antérieurs à J-365 sont
-            écrêtés ;
-  abonnés   données disponibles de J-365 à J-2 (UTC), `timeRange.start`
-            obligatoire ;
-  page      aucune fenêtre documentée — servie depuis la création de la page.
+  shares      "rolling 12-month window" — buckets earlier than J-365 are
+              clipped;
+  followers   data available from J-365 to J-2 (UTC), `timeRange.start`
+              mandatory;
+  page        no documented window — served since the page's creation.
 
-« Maintenant » est VIRTUEL : époque du jeu de données + temps écoulé depuis le
-reset, horloge /__admin/clock comprise. Deux serveurs au même âge servent les
-mêmes fenêtres — la propriété qui rend les tests d'extraction rejouables.
+"Now" is VIRTUAL: dataset epoch + elapsed time since reset, including
+/__admin/clock advances. Two servers at the same age serve the same windows —
+the property that makes extraction tests replayable.
 """
 
 from __future__ import annotations
@@ -35,340 +35,338 @@ from typing import Any
 from .injection import engine
 from .settings import settings
 
-#: Granularités acceptées par endpoint (doc officielle).
-GRANULARITES_PARTAGE = ("DAY", "MONTH")
-GRANULARITES_ABONNES = ("DAY", "WEEK", "MONTH")
-GRANULARITES_PAGE = ("DAY", "MONTH")
+#: Granularities accepted per endpoint (official doc).
+GRANULARITIES_SHARES = ("DAY", "MONTH")
+GRANULARITIES_FOLLOWERS = ("DAY", "WEEK", "MONTH")
+GRANULARITIES_PAGE = ("DAY", "MONTH")
 
-_COMPTEURS = ("impressionCount", "clickCount", "likeCount", "commentCount", "shareCount")
-
-
-# ── Horloge virtuelle ────────────────────────────────────────────────────────
+_COUNTERS = ("impressionCount", "clickCount", "likeCount", "commentCount", "shareCount")
 
 
-def maintenant_virtuel() -> datetime:
-    """EPOQUE + temps écoulé depuis le reset (avances /__admin/clock comprises)."""
-    from .evolution import EPOQUE
+# ── Virtual clock ────────────────────────────────────────────────────────────
+
+
+def virtual_now() -> datetime:
+    """EPOCH + elapsed time since reset (/__admin/clock advances included)."""
+    from .evolution import EPOCH
     from .state import state
 
-    ecoule = engine.now() - state.evolution.demarrage
-    return (EPOQUE + timedelta(seconds=ecoule)).astimezone(UTC)
+    elapsed = engine.now() - state.evolution.start
+    return (EPOCH + timedelta(seconds=elapsed)).astimezone(UTC)
 
 
-def jour_virtuel() -> date:
-    return maintenant_virtuel().date()
+def virtual_day() -> date:
+    return virtual_now().date()
 
 
-def _ms(jour: date) -> int:
-    return int(datetime(jour.year, jour.month, jour.day, tzinfo=UTC).timestamp() * 1000)
+def _ms(day: date) -> int:
+    return int(datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp() * 1000)
 
 
-def _jour_de_ms(ms: int) -> date:
+def _day_from_ms(ms: int) -> date:
     return datetime.fromtimestamp(ms / 1000, tz=UTC).date()
 
 
-# ── Découpage en buckets ─────────────────────────────────────────────────────
+# ── Bucketing ────────────────────────────────────────────────────────────────
 
 
-def _debut_bucket(jour: date, granularite: str) -> date:
-    if granularite == "DAY":
-        return jour
-    if granularite == "WEEK":
-        # Alignement lundi ISO — non attesté par la doc, cf. registre.
-        return jour - timedelta(days=jour.weekday())
-    return jour.replace(day=1)
+def _bucket_start(day: date, granularity: str) -> date:
+    if granularity == "DAY":
+        return day
+    if granularity == "WEEK":
+        # ISO Monday alignment — not attested by the doc, cf. registry.
+        return day - timedelta(days=day.weekday())
+    return day.replace(day=1)
 
 
-def _bucket_suivant(debut: date, granularite: str) -> date:
-    if granularite == "DAY":
-        return debut + timedelta(days=1)
-    if granularite == "WEEK":
-        return debut + timedelta(days=7)
-    if debut.month == 12:
-        return date(debut.year + 1, 1, 1)
-    return date(debut.year, debut.month + 1, 1)
+def _next_bucket(start: date, granularity: str) -> date:
+    if granularity == "DAY":
+        return start + timedelta(days=1)
+    if granularity == "WEEK":
+        return start + timedelta(days=7)
+    if start.month == 12:
+        return date(start.year + 1, 1, 1)
+    return date(start.year, start.month + 1, 1)
 
 
-def decouper_buckets(
+def split_buckets(
     start_ms: int,
     end_ms: int,
-    granularite: str,
+    granularity: str,
     *,
-    jour_min: date,
-    jour_fin_ex: date,
+    min_day: date,
+    end_day_ex: date,
 ) -> list[tuple[date, date]]:
-    """Les buckets [début, fin) écrêtés à la fenêtre de l'endpoint.
+    """The [start, end) buckets, clipped to the endpoint's window.
 
-    `start` demandé est inclusif, `end` exclusif, normalisés au jour UTC — le
-    régime documenté des share statistics, appliqué partout (la table de
-    paramètres de pageStatistics dit l'inverse, très probablement une coquille
-    de doc ; cf. registre).
+    Requested `start` is inclusive, `end` exclusive, normalized to the UTC
+    day — the documented regime of share statistics, applied everywhere (the
+    pageStatistics parameter table says the opposite, very likely a doc typo;
+    cf. registry).
     """
-    debut_demande = max(_jour_de_ms(start_ms), jour_min)
-    fin_demandee = min(_jour_de_ms(end_ms - 1) + timedelta(days=1), jour_fin_ex)
-    if fin_demandee <= debut_demande:
+    requested_start = max(_day_from_ms(start_ms), min_day)
+    requested_end = min(_day_from_ms(end_ms - 1) + timedelta(days=1), end_day_ex)
+    if requested_end <= requested_start:
         return []
     buckets: list[tuple[date, date]] = []
-    curseur = _debut_bucket(debut_demande, granularite)
-    while curseur < fin_demandee:
-        fin_bucket = _bucket_suivant(curseur, granularite)
-        buckets.append((curseur, min(fin_bucket, fin_demandee)))
-        curseur = fin_bucket
+    cursor = _bucket_start(requested_start, granularity)
+    while cursor < requested_end:
+        bucket_end = _next_bucket(cursor, granularity)
+        buckets.append((cursor, min(bucket_end, requested_end)))
+        cursor = bucket_end
     return buckets
 
 
-def fenetre_partage() -> tuple[date, date]:
-    """[J-365, J) — la fenêtre glissante de 12 mois des share statistics."""
-    aujourd_hui = jour_virtuel()
-    return aujourd_hui - timedelta(days=365), aujourd_hui + timedelta(days=1)
+def shares_window() -> tuple[date, date]:
+    """[J-365, J) — the share statistics' rolling 12-month window."""
+    today = virtual_day()
+    return today - timedelta(days=365), today + timedelta(days=1)
 
 
-def fenetre_abonnes() -> tuple[date, date]:
-    """[J-365, J-2] inclus, soit une borne exclusive à J-1."""
-    aujourd_hui = jour_virtuel()
-    return aujourd_hui - timedelta(days=365), aujourd_hui - timedelta(days=1)
+def followers_window() -> tuple[date, date]:
+    """[J-365, J-2] inclusive, i.e. an exclusive bound at J-1."""
+    today = virtual_day()
+    return today - timedelta(days=365), today - timedelta(days=1)
 
 
-def fenetre_page() -> tuple[date, date]:
-    """Depuis la création de la page — aucune fenêtre documentée."""
+def page_window() -> tuple[date, date]:
+    """Since the page's creation — no documented window."""
     from .state import state
 
-    return state.dataset["debut_serie"], jour_virtuel() + timedelta(days=1)
+    return state.dataset["series_start"], virtual_day() + timedelta(days=1)
 
 
-def time_range(debut: date, fin_ex: date) -> dict[str, int]:
-    return {"start": _ms(debut), "end": _ms(fin_ex)}
+def time_range(start: date, end_ex: date) -> dict[str, int]:
+    return {"start": _ms(start), "end": _ms(end_ex)}
 
 
-# ── Statistiques de partage ──────────────────────────────────────────────────
+# ── Share statistics ─────────────────────────────────────────────────────────
 
 
 def _zero() -> dict[str, int]:
-    return dict.fromkeys(_COMPTEURS, 0)
+    return dict.fromkeys(_COUNTERS, 0)
 
 
-def _sommer(series: dict[str, dict[str, int]], debut: date, fin_ex: date) -> dict[str, int]:
-    """Somme des compteurs d'UNE série {jour ISO → compteurs} sur [début, fin)."""
+def _sum(series: dict[str, dict[str, int]], start: date, end_ex: date) -> dict[str, int]:
+    """Sum of the counters of ONE series {ISO day → counters} over [start, end)."""
     total = _zero()
-    jour = debut
-    while jour < fin_ex:
-        if (bucket := series.get(jour.isoformat())) is not None:
-            for compteur in _COMPTEURS:
-                total[compteur] += bucket.get(compteur, 0)
-        jour += timedelta(days=1)
+    day = start
+    while day < end_ex:
+        if (bucket := series.get(day.isoformat())) is not None:
+            for counter in _COUNTERS:
+                total[counter] += bucket.get(counter, 0)
+        day += timedelta(days=1)
     return total
 
 
-def _serie_bornes(series: dict[str, dict[str, int]]) -> tuple[date, date] | None:
+def _series_bounds(series: dict[str, dict[str, int]]) -> tuple[date, date] | None:
     if not series:
         return None
-    jours = sorted(series)
-    return date.fromisoformat(jours[0]), date.fromisoformat(jours[-1]) + timedelta(days=1)
+    days = sorted(series)
+    return date.fromisoformat(days[0]), date.fromisoformat(days[-1]) + timedelta(days=1)
 
 
-def _stats_partage(compteurs: dict[str, int], uniques: int | None = None) -> dict[str, Any]:
-    """Le bloc `totalShareStatistics`, engagement recalculé à la sérialisation.
+def _share_stats(counters: dict[str, int], uniques: int | None = None) -> dict[str, Any]:
+    """The `totalShareStatistics` block, engagement recomputed at serialization.
 
-    Ordre des clés calqué sur l'exemple officiel vie-entière ; les buckets
-    temporels omettent `uniqueImpressionsCount`.
+    Key order mirrors the official lifetime example; time-bound buckets omit
+    `uniqueImpressionsCount`.
     """
-    impressions = compteurs["impressionCount"]
+    impressions = counters["impressionCount"]
     interactions = (
-        compteurs["clickCount"]
-        + compteurs["likeCount"]
-        + compteurs["commentCount"]
-        + compteurs["shareCount"]
+        counters["clickCount"]
+        + counters["likeCount"]
+        + counters["commentCount"]
+        + counters["shareCount"]
     )
-    bloc: dict[str, Any] = {}
+    block: dict[str, Any] = {}
     if uniques is not None:
-        bloc["uniqueImpressionsCount"] = uniques
-    bloc["clickCount"] = compteurs["clickCount"]
-    bloc["engagement"] = interactions / impressions if impressions else 0
-    bloc["likeCount"] = compteurs["likeCount"]
-    bloc["commentCount"] = compteurs["commentCount"]
-    bloc["shareCount"] = compteurs["shareCount"]
-    bloc["impressionCount"] = impressions
-    return bloc
+        block["uniqueImpressionsCount"] = uniques
+    block["clickCount"] = counters["clickCount"]
+    block["engagement"] = interactions / impressions if impressions else 0
+    block["likeCount"] = counters["likeCount"]
+    block["commentCount"] = counters["commentCount"]
+    block["shareCount"] = counters["shareCount"]
+    block["impressionCount"] = impressions
+    return block
 
 
-def _cle_urn(urn: str) -> str:
-    """La clé de l'élément per-share : `share` ou `ugcPost` selon le type d'URN."""
+def _urn_key(urn: str) -> str:
+    """The per-share element's key: `share` or `ugcPost` depending on the URN type."""
     return "ugcPost" if urn.startswith("urn:li:ugcPost:") else "share"
 
 
-def element_partage_vie() -> dict[str, Any]:
-    """L'agrégat organisation vie-entière — un seul élément."""
+def lifetime_share_element() -> dict[str, Any]:
+    """The organization-wide lifetime aggregate — a single element."""
     from .state import state
 
     total = _zero()
-    for series in state.dataset["series_posts"].values():
-        bornes = _serie_bornes(series)
-        if bornes is None:
+    for series in state.dataset["posts_series"].values():
+        bounds = _series_bounds(series)
+        if bounds is None:
             continue
-        partiel = _sommer(series, *bornes)
-        for compteur in _COMPTEURS:
-            total[compteur] += partiel[compteur]
-    uniques = sum(state.dataset["uniques_vie"].values())
+        partial = _sum(series, *bounds)
+        for counter in _COUNTERS:
+            total[counter] += partial[counter]
+    uniques = sum(state.dataset["lifetime_uniques"].values())
     return {
-        "totalShareStatistics": _stats_partage(total, uniques=uniques),
+        "totalShareStatistics": _share_stats(total, uniques=uniques),
         "organizationalEntity": settings.organization_urn,
     }
 
 
-def elements_partage_par_post(urns: list[str]) -> list[dict[str, Any]]:
-    """Un élément par URN ACTIF — les posts sans activité (ou inconnus, ou
-    supprimés) sont OMIS : « can be assumed to have counts of 0 » (doc)."""
+def share_elements_per_post(urns: list[str]) -> list[dict[str, Any]]:
+    """One element per ACTIVE URN — posts with no activity (or unknown, or
+    deleted) are OMITTED: "can be assumed to have counts of 0" (doc)."""
     from .state import state
 
-    existants = {p["id"] for p in state.dataset["posts"]}
+    existing = {p["id"] for p in state.dataset["posts"]}
     elements: list[dict[str, Any]] = []
     for urn in urns:
-        series = state.dataset["series_posts"].get(urn)
-        if urn not in existants or not series:
+        series = state.dataset["posts_series"].get(urn)
+        if urn not in existing or not series:
             continue
-        bornes = _serie_bornes(series)
-        if bornes is None:
+        bounds = _series_bounds(series)
+        if bounds is None:
             continue
-        compteurs = _sommer(series, *bornes)
-        if all(v == 0 for v in compteurs.values()):
+        counters = _sum(series, *bounds)
+        if all(v == 0 for v in counters.values()):
             continue
         elements.append(
             {
-                "totalShareStatistics": _stats_partage(
-                    compteurs, uniques=state.dataset["uniques_vie"].get(urn, 0)
+                "totalShareStatistics": _share_stats(
+                    counters, uniques=state.dataset["lifetime_uniques"].get(urn, 0)
                 ),
-                _cle_urn(urn): urn,
+                _urn_key(urn): urn,
                 "organizationalEntity": settings.organization_urn,
             }
         )
     return elements
 
 
-def elements_partage_buckets(
-    start_ms: int, end_ms: int, granularite: str, urns: list[str] | None = None
+def share_bucket_elements(
+    start_ms: int, end_ms: int, granularity: str, urns: list[str] | None = None
 ) -> list[dict[str, Any]]:
-    """Les buckets temporels — org entière, ou par post (mode non strict)."""
+    """The time buckets — whole org, or per post (non-strict mode)."""
     from .state import state
 
-    jour_min, jour_fin_ex = fenetre_partage()
-    buckets = decouper_buckets(
-        start_ms, end_ms, granularite, jour_min=jour_min, jour_fin_ex=jour_fin_ex
-    )
+    min_day, end_day_ex = shares_window()
+    buckets = split_buckets(start_ms, end_ms, granularity, min_day=min_day, end_day_ex=end_day_ex)
     elements: list[dict[str, Any]] = []
     if urns is None:
-        toutes_series = list(state.dataset["series_posts"].values())
-        for debut, fin_ex in buckets:
+        all_series = list(state.dataset["posts_series"].values())
+        for start, end_ex in buckets:
             total = _zero()
-            for series in toutes_series:
-                partiel = _sommer(series, debut, fin_ex)
-                for compteur in _COMPTEURS:
-                    total[compteur] += partiel[compteur]
+            for series in all_series:
+                partial = _sum(series, start, end_ex)
+                for counter in _COUNTERS:
+                    total[counter] += partial[counter]
             elements.append(
                 {
-                    "timeRange": time_range(debut, fin_ex),
-                    "totalShareStatistics": _stats_partage(total),
+                    "timeRange": time_range(start, end_ex),
+                    "totalShareStatistics": _share_stats(total),
                     "organizationalEntity": settings.organization_urn,
                 }
             )
         return elements
     for urn in urns:
-        series = state.dataset["series_posts"].get(urn)
+        series = state.dataset["posts_series"].get(urn)
         if not series:
             continue
-        for debut, fin_ex in buckets:
+        for start, end_ex in buckets:
             elements.append(
                 {
-                    "timeRange": time_range(debut, fin_ex),
-                    "totalShareStatistics": _stats_partage(_sommer(series, debut, fin_ex)),
-                    _cle_urn(urn): urn,
+                    "timeRange": time_range(start, end_ex),
+                    "totalShareStatistics": _share_stats(_sum(series, start, end_ex)),
+                    _urn_key(urn): urn,
                     "organizationalEntity": settings.organization_urn,
                 }
             )
     return elements
 
 
-# ── Abonnés ──────────────────────────────────────────────────────────────────
+# ── Followers ────────────────────────────────────────────────────────────────
 
 
-def total_abonnes() -> int:
-    """`networkSizes.firstDegreeSize` = base + Σ gains (nets, négatifs compris)."""
+def total_followers() -> int:
+    """`networkSizes.firstDegreeSize` = base + Σ gains (net, negatives included)."""
     from .state import state
 
     gains = sum(
         g["organicFollowerGain"] + g["paidFollowerGain"]
-        for g in state.dataset["serie_abonnes"].values()
+        for g in state.dataset["followers_series"].values()
     )
-    return int(state.dataset["abonnes_base"] + gains)
+    return int(state.dataset["followers_base"] + gains)
 
 
-def _compteurs_facette(organique: int) -> dict[str, int]:
-    """Les démographies roulent le payant dans l'organique (note officielle :
-    « Do not refer to the paidFollowerCount field »)."""
-    return {"organicFollowerCount": organique, "paidFollowerCount": 0}
+def _facet_counts(organic: int) -> dict[str, int]:
+    """Demographics roll the paid count into the organic one (official note:
+    "Do not refer to the paidFollowerCount field")."""
+    return {"organicFollowerCount": organic, "paidFollowerCount": 0}
 
 
-def _repartir(total: int, poids: list[float]) -> list[int]:
-    """Répartition au plus fort reste — les parts somment EXACTEMENT à total."""
-    bruts = [total * p for p in poids]
-    bases = [int(b) for b in bruts]
-    restes = sorted(range(len(bruts)), key=lambda i: bruts[i] - bases[i], reverse=True)
-    manque = total - sum(bases)
-    for i in restes[:manque]:
+def _apportion(total: int, weights: list[float]) -> list[int]:
+    """Largest-remainder apportionment — the shares sum to EXACTLY total."""
+    raw = [total * p for p in weights]
+    bases = [int(b) for b in raw]
+    remainders = sorted(range(len(raw)), key=lambda i: raw[i] - bases[i], reverse=True)
+    missing = total - sum(bases)
+    for i in remainders[:missing]:
         bases[i] += 1
     return bases
 
 
-def element_abonnes_vie() -> dict[str, Any]:
-    """L'élément vie-entière : les 7 familles de facettes démographiques.
+def lifetime_followers_element() -> dict[str, Any]:
+    """The lifetime element: the 7 demographic facet families.
 
-    Chaque facette couvre MOINS que le total (les membres sans l'attribut sont
-    absents, comme en réel) — sauf `associationType`, qui ne liste que les
-    salariés. Le total, lui, vit sur /networkSizes.
+    Each facet covers LESS than the total (members without the attribute are
+    absent, as in reality) — except `associationType`, which only lists
+    staff. The total itself lives on /networkSizes.
     """
     from .state import state
 
-    total = total_abonnes()
+    total = total_followers()
     element: dict[str, Any] = {}
     element["followerCountsByAssociationType"] = [
         {
-            "followerCounts": _compteurs_facette(state.dataset["nombre_salaries"]),
+            "followerCounts": _facet_counts(state.dataset["staff_count"]),
             "associationType": "EMPLOYEE",
         }
     ]
-    for facette, cle, segments, couverture in state.dataset["parts_demographie"]:
-        couverts = round(total * couverture)
-        parts = _repartir(couverts, [poids for _, poids in segments])
-        element[facette] = [
-            {"followerCounts": _compteurs_facette(n), cle: valeur}
-            for (valeur, _), n in zip(segments, parts, strict=True)
+    for facet, key, segments, coverage in state.dataset["demographics_shares"]:
+        covered = round(total * coverage)
+        shares = _apportion(covered, [weight for _, weight in segments])
+        element[facet] = [
+            {"followerCounts": _facet_counts(n), key: value}
+            for (value, _), n in zip(segments, shares, strict=True)
         ]
     element["organizationalEntity"] = settings.organization_urn
     return element
 
 
-def elements_abonnes_buckets(start_ms: int, end_ms: int, granularite: str) -> list[dict[str, Any]]:
+def follower_bucket_elements(start_ms: int, end_ms: int, granularity: str) -> list[dict[str, Any]]:
     from .state import state
 
-    jour_min, jour_fin_ex = fenetre_abonnes()
-    serie = state.dataset["serie_abonnes"]
+    min_day, end_day_ex = followers_window()
+    series = state.dataset["followers_series"]
     elements: list[dict[str, Any]] = []
-    for debut, fin_ex in decouper_buckets(
-        start_ms, end_ms, granularite, jour_min=jour_min, jour_fin_ex=jour_fin_ex
+    for start, end_ex in split_buckets(
+        start_ms, end_ms, granularity, min_day=min_day, end_day_ex=end_day_ex
     ):
-        organique = 0
-        paye = 0
-        jour = debut
-        while jour < fin_ex:
-            if (gains := serie.get(jour.isoformat())) is not None:
-                organique += gains["organicFollowerGain"]
-                paye += gains["paidFollowerGain"]
-            jour += timedelta(days=1)
+        organic = 0
+        paid = 0
+        day = start
+        while day < end_ex:
+            if (gains := series.get(day.isoformat())) is not None:
+                organic += gains["organicFollowerGain"]
+                paid += gains["paidFollowerGain"]
+            day += timedelta(days=1)
         elements.append(
             {
-                "timeRange": time_range(debut, fin_ex),
+                "timeRange": time_range(start, end_ex),
                 "followerGains": {
-                    "organicFollowerGain": organique,
-                    "paidFollowerGain": paye,
+                    "organicFollowerGain": organic,
+                    "paidFollowerGain": paid,
                 },
                 "organizationalEntity": settings.organization_urn,
             }
@@ -376,108 +374,108 @@ def elements_abonnes_buckets(start_ms: int, end_ms: int, granularite: str) -> li
     return elements
 
 
-# ── Vues de page ─────────────────────────────────────────────────────────────
+# ── Page views ───────────────────────────────────────────────────────────────
 
 
-def _vues_jour(rec: dict[str, Any]) -> dict[str, int]:
-    """Les 15 compteurs d'un jour, dérivés du stockage compact.
+def _day_views(rec: dict[str, Any]) -> dict[str, int]:
+    """The 15 counters of a day, derived from the compact storage.
 
-    Arithmétique VÉRIFIÉE sur l'exemple officiel : all = allDesktop + allMobile
-    = overview + careers, et careers = jobs + lifeAt.
+    Arithmetic VERIFIED against the official example: all = allDesktop +
+    allMobile = overview + careers, and careers = jobs + lifeAt.
     """
-    accueil, emplois, vie = rec["overview"], rec["jobs"], rec["lifeAt"]
-    part = rec["part_bureau"]
-    accueil_bureau = round(accueil * part)
-    emplois_bureau = round(emplois * part)
-    vie_bureau = round(vie * part)
-    carrieres = emplois + vie
-    carrieres_bureau = emplois_bureau + vie_bureau
-    total = accueil + carrieres
-    total_bureau = accueil_bureau + carrieres_bureau
+    overview, jobs, life = rec["overview"], rec["jobs"], rec["lifeAt"]
+    desktop_share = rec["part_bureau"]
+    overview_desktop = round(overview * desktop_share)
+    jobs_desktop = round(jobs * desktop_share)
+    life_desktop = round(life * desktop_share)
+    careers = jobs + life
+    careers_desktop = jobs_desktop + life_desktop
+    total = overview + careers
+    total_desktop = overview_desktop + careers_desktop
     return {
-        "allDesktopPageViews": total_bureau,
-        "allMobilePageViews": total - total_bureau,
+        "allDesktopPageViews": total_desktop,
+        "allMobilePageViews": total - total_desktop,
         "allPageViews": total,
-        "careersPageViews": carrieres,
-        "desktopCareersPageViews": carrieres_bureau,
-        "desktopJobsPageViews": emplois_bureau,
-        "desktopLifeAtPageViews": vie_bureau,
-        "desktopOverviewPageViews": accueil_bureau,
-        "jobsPageViews": emplois,
-        "lifeAtPageViews": vie,
-        "mobileCareersPageViews": carrieres - carrieres_bureau,
-        "mobileJobsPageViews": emplois - emplois_bureau,
-        "mobileLifeAtPageViews": vie - vie_bureau,
-        "mobileOverviewPageViews": accueil - accueil_bureau,
-        "overviewPageViews": accueil,
+        "careersPageViews": careers,
+        "desktopCareersPageViews": careers_desktop,
+        "desktopJobsPageViews": jobs_desktop,
+        "desktopLifeAtPageViews": life_desktop,
+        "desktopOverviewPageViews": overview_desktop,
+        "jobsPageViews": jobs,
+        "lifeAtPageViews": life,
+        "mobileCareersPageViews": careers - careers_desktop,
+        "mobileJobsPageViews": jobs - jobs_desktop,
+        "mobileLifeAtPageViews": life - life_desktop,
+        "mobileOverviewPageViews": overview - overview_desktop,
+        "overviewPageViews": overview,
     }
 
 
-def _vues_cumulees(debut: date, fin_ex: date) -> tuple[dict[str, int], float]:
-    """Somme des 15 compteurs sur [début, fin) + part d'uniques moyenne."""
+def _cumulative_views(start: date, end_ex: date) -> tuple[dict[str, int], float]:
+    """Sum of the 15 counters over [start, end) + average unique share."""
     from .state import state
 
-    serie = state.dataset["serie_vues"]
-    total = dict.fromkeys(_vues_jour({"overview": 0, "jobs": 0, "lifeAt": 0, "part_bureau": 0}), 0)
-    parts_uniques: list[float] = []
-    jour = debut
-    while jour < fin_ex:
-        if (rec := serie.get(jour.isoformat())) is not None:
-            for cle, valeur in _vues_jour(rec).items():
-                total[cle] += valeur
-            parts_uniques.append(rec["part_uniques"])
-        jour += timedelta(days=1)
-    return total, (sum(parts_uniques) / len(parts_uniques) if parts_uniques else 0.78)
+    series = state.dataset["views_series"]
+    total = dict.fromkeys(_day_views({"overview": 0, "jobs": 0, "lifeAt": 0, "part_bureau": 0}), 0)
+    unique_shares: list[float] = []
+    day = start
+    while day < end_ex:
+        if (rec := series.get(day.isoformat())) is not None:
+            for key, value in _day_views(rec).items():
+                total[key] += value
+            unique_shares.append(rec["part_uniques"])
+        day += timedelta(days=1)
+    return total, (sum(unique_shares) / len(unique_shares) if unique_shares else 0.78)
 
 
-def element_page_vie() -> dict[str, Any]:
-    """L'élément vie-entière : totalPageStatistics complet + 6 facettes."""
+def lifetime_page_element() -> dict[str, Any]:
+    """The lifetime element: full totalPageStatistics + 6 facets."""
     from .state import state
 
-    debut, fin_ex = fenetre_page()
-    vues, _ = _vues_cumulees(debut, fin_ex)
+    start, end_ex = page_window()
+    views, _ = _cumulative_views(start, end_ex)
     element: dict[str, Any] = {}
-    for facette, cle, segments, couverture in state.dataset["parts_pages"]:
-        couverts = round(vues["allPageViews"] * couverture)
-        parts = _repartir(couverts, [poids for _, poids in segments])
-        element[facette] = [
-            {"pageStatistics": {"views": {"allPageViews": {"pageViews": n}}}, cle: valeur}
-            for (valeur, _), n in zip(segments, parts, strict=True)
+    for facet, key, segments, coverage in state.dataset["pages_shares"]:
+        covered = round(views["allPageViews"] * coverage)
+        shares = _apportion(covered, [weight for _, weight in segments])
+        element[facet] = [
+            {"pageStatistics": {"views": {"allPageViews": {"pageViews": n}}}, key: value}
+            for (value, _), n in zip(segments, shares, strict=True)
         ]
     element["totalPageStatistics"] = {
         "clicks": {"desktopCustomButtonClickCounts": [], "mobileCustomButtonClickCounts": []},
-        "views": {cle: {"pageViews": valeur} for cle, valeur in sorted(vues.items())},
+        "views": {key: {"pageViews": value} for key, value in sorted(views.items())},
     }
     element["organization"] = settings.organization_urn
     return element
 
 
-def elements_page_buckets(start_ms: int, end_ms: int, granularite: str) -> list[dict[str, Any]]:
-    """Buckets temporels — jeu de familles RÉDUIT, avec `uniquePageViews`
-    (sous-ensemble exact non attesté, cf. registre)."""
-    jour_min, jour_fin_ex = fenetre_page()
+def page_bucket_elements(start_ms: int, end_ms: int, granularity: str) -> list[dict[str, Any]]:
+    """Time buckets — a REDUCED set of families, with `uniquePageViews`
+    (the exact subset isn't attested, cf. registry)."""
+    min_day, end_day_ex = page_window()
     elements: list[dict[str, Any]] = []
-    for debut, fin_ex in decouper_buckets(
-        start_ms, end_ms, granularite, jour_min=jour_min, jour_fin_ex=jour_fin_ex
+    for start, end_ex in split_buckets(
+        start_ms, end_ms, granularity, min_day=min_day, end_day_ex=end_day_ex
     ):
-        vues, part_uniques = _vues_cumulees(debut, fin_ex)
-        familles = {
-            "allPageViews": vues["allPageViews"],
-            "overviewPageViews": vues["overviewPageViews"],
-            "careersPageViews": vues["careersPageViews"],
-            "jobsPageViews": vues["jobsPageViews"],
-            "lifeAtPageViews": vues["lifeAtPageViews"],
+        views, unique_share = _cumulative_views(start, end_ex)
+        families = {
+            "allPageViews": views["allPageViews"],
+            "overviewPageViews": views["overviewPageViews"],
+            "careersPageViews": views["careersPageViews"],
+            "jobsPageViews": views["jobsPageViews"],
+            "lifeAtPageViews": views["lifeAtPageViews"],
         }
         elements.append(
             {
-                "timeRange": time_range(debut, fin_ex),
+                "timeRange": time_range(start, end_ex),
                 "totalPageStatistics": {
                     "views": {
-                        cle: {
-                            "pageViews": valeur,
-                            "uniquePageViews": round(valeur * part_uniques),
+                        key: {
+                            "pageViews": value,
+                            "uniquePageViews": round(value * unique_share),
                         }
-                        for cle, valeur in familles.items()
+                        for key, value in families.items()
                     }
                 },
                 "organization": settings.organization_urn,

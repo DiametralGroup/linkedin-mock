@@ -1,23 +1,23 @@
-"""Injection de pannes — le vrai intérêt d'un mock.
+"""Failure injection — the real point of a mock.
 
-Architecture reprise de boondmanager-mock (règles déclaratives, pilotables par
-HTTP via /__admin, UN point de dispatch évalué avant l'authentification), avec
-les modes de panne PROPRES au régime LinkedIn :
+Architecture reused from boondmanager-mock (declarative rules, drivable over
+HTTP via /__admin, ONE dispatch point evaluated before authentication), with
+failure modes SPECIFIC to the LinkedIn regime:
 
-  rate_limit      quota JOURNALIER : se déclenche au-delà de `after_requests`
-                  requêtes dans le jour UTC VIRTUEL courant, compteur remis à
-                  zéro à minuit UTC virtuel — et SANS Retry-After, comme la
-                  vraie API (quotas non publiés, reset minuit UTC) ; le client
-                  doit décider à l'aveugle, c'est le geste à répéter ;
-  status          la panne franche (5xx) ;
-  latency         un vrai sleep — seul moyen d'éprouver un timeout client ;
-  auth_reject     préempte l'authentification ; `variant` choisit le corps 401
-                  (empty | invalid | expired | revoked) ;
-  version_reject  force le 426 NONEXISTENT_VERSION — répète un retrait de
-                  version en cours de trimestre, sans toucher à la fenêtre ;
-  page_drift      décale la tranche start/count du finder posts : un post
-                  publié entre deux pages fait apparaître un doublon (ou un
-                  trou) — la raison d'être du merge sur clé côté pipeline.
+  rate_limit      DAILY quota: triggers past `after_requests` requests within
+                  the current VIRTUAL UTC day, counter reset at virtual
+                  midnight UTC — and WITHOUT Retry-After, like the real API
+                  (unpublished quotas, midnight UTC reset); the client must
+                  decide blind, that's the behavior to exercise;
+  status          the outright failure (5xx);
+  latency         a real sleep — the only way to exercise a client timeout;
+  auth_reject     preempts authentication; `variant` picks the 401 body
+                  (empty | invalid | expired | revoked);
+  version_reject  forces the 426 NONEXISTENT_VERSION — repeats a mid-quarter
+                  version removal, without touching the window;
+  page_drift      shifts the posts finder's start/count slice: a post
+                  published between two pages makes a duplicate (or a gap)
+                  appear — the reason merge-on-key exists on the pipeline side.
 """
 
 from __future__ import annotations
@@ -29,22 +29,22 @@ from typing import Any, Literal
 
 Kind = Literal["rate_limit", "status", "latency", "page_drift", "auth_reject", "version_reject"]
 
-VARIANTES_AUTH = ("empty", "invalid", "expired", "revoked")
+AUTH_VARIANTS = ("empty", "invalid", "expired", "revoked")
 
 
 @dataclass
 class Rule:
-    """Une règle d'injection. `scope` est un motif glob sur le chemin."""
+    """An injection rule. `scope` is a glob pattern on the path."""
 
     id: str
     kind: Kind
     scope: str = "*"
-    # Nombre d'applications restantes. None = illimité. C'est la différence
-    # entre une panne transitoire (que le retry doit absorber) et une panne
-    # persistante (qui doit faire échouer le run avec un code non nul).
+    # Number of applications left. None = unlimited. This is the difference
+    # between a transient failure (that a retry must absorb) and a persistent
+    # failure (that must make the run fail with a non-zero exit code).
     times: int | None = None
 
-    # rate_limit — quota par jour UTC virtuel.
+    # rate_limit — quota per virtual UTC day.
     after_requests: int = 0
     # status
     status: int = 500
@@ -59,7 +59,7 @@ class Rule:
         return fnmatch.fnmatch(path, self.scope)
 
     def consume(self) -> bool:
-        """Décrémente le compteur. Rend False quand la règle est épuisée."""
+        """Decrements the counter. Returns False once the rule is exhausted."""
         if self.times is None:
             return True
         if self.times <= 0:
@@ -69,19 +69,19 @@ class Rule:
 
 
 class InjectionEngine:
-    """Le moteur, et les compteurs de requêtes dont il dépend."""
+    """The engine, and the request counters it depends on."""
 
     def __init__(self) -> None:
         self.rules: list[Rule] = []
         self.request_counts: dict[str, int] = {}
-        #: (chemin, jour ISO) → compteur — la matière du quota journalier.
-        self.compte_jour: dict[tuple[str, str], int] = {}
+        #: (path, ISO day) → count — the substance of the daily quota.
+        self.day_count: dict[tuple[str, str], int] = {}
         self.last_query_params: dict[str, dict[str, str]] = {}
         self._next_id = 1
-        # Horloge virtuelle : fenêtres temporelles (quota, stats) sans sleep.
+        # Virtual clock: time windows (quota, stats) without sleeping.
         self.clock_offset: float = 0.0
 
-    # ── Gestion des règles ───────────────────────────────────────────────────
+    # ── Rule management ──────────────────────────────────────────────────────
 
     def add(self, **kwargs: Any) -> Rule:
         rule = Rule(id=f"r{self._next_id}", **kwargs)
@@ -99,23 +99,23 @@ class InjectionEngine:
 
     def reset_counters(self) -> None:
         self.request_counts.clear()
-        self.compte_jour.clear()
+        self.day_count.clear()
         self.last_query_params.clear()
         self.clock_offset = 0.0
 
     # ── Observation ──────────────────────────────────────────────────────────
 
-    def observe(self, path: str, params: dict[str, str], jour: str) -> int:
-        """Enregistre le passage d'une requête ; rend son rang DANS LE JOUR.
+    def observe(self, path: str, params: dict[str, str], day: str) -> int:
+        """Records a request's passage; returns its rank WITHIN THE DAY.
 
-        `last_query_params` est porteur : c'est ce qui permet à un consommateur
-        de prouver qu'il a bien ENVOYÉ `timeIntervals`, sa pagination et son
-        `q`, au lieu de simplement tolérer leur absence.
+        `last_query_params` is the load-bearing part: it's what lets a
+        consumer PROVE it actually SENT `timeIntervals`, its pagination and
+        its `q`, instead of merely tolerating their absence.
         """
         self.request_counts[path] = self.request_counts.get(path, 0) + 1
-        self.compte_jour[(path, jour)] = self.compte_jour.get((path, jour), 0) + 1
+        self.day_count[(path, day)] = self.day_count.get((path, day), 0) + 1
         self.last_query_params[path] = dict(params)
-        return self.compte_jour[(path, jour)]
+        return self.day_count[(path, day)]
 
     def now(self) -> float:
         return time.time() + self.clock_offset
@@ -123,7 +123,7 @@ class InjectionEngine:
     # ── Dispatch ─────────────────────────────────────────────────────────────
 
     def first(self, kind: Kind, path: str) -> Rule | None:
-        """Première règle active du type demandé pour ce chemin."""
+        """First active rule of the requested kind for this path."""
         for rule in self.rules:
             if rule.kind == kind and rule.matches(path):
                 if rule.times is not None and rule.times <= 0:
@@ -154,7 +154,7 @@ class InjectionEngine:
         ]
 
 
-_CHAMPS_PAR_KIND: dict[str, set[str]] = {
+_FIELDS_BY_KIND: dict[str, set[str]] = {
     "rate_limit": {"after_requests"},
     "status": {"status"},
     "latency": {"seconds"},
@@ -164,8 +164,8 @@ _CHAMPS_PAR_KIND: dict[str, set[str]] = {
 }
 
 
-def _relevant(kind: str, champ: str) -> bool:
-    return champ in _CHAMPS_PAR_KIND.get(kind, set())
+def _relevant(kind: str, field: str) -> bool:
+    return field in _FIELDS_BY_KIND.get(kind, set())
 
 
 engine = InjectionEngine()

@@ -1,34 +1,35 @@
-"""Mock de l'API LinkedIn versionnée — image container et paquet Python installable.
+"""Mock of the versioned LinkedIn API — container image and installable Python package.
 
-La surface reproduit la Community Management API (api.linkedin.com/rest,
-en-têtes `Linkedin-Version` + `X-Restli-Protocol-Version`) sur UN jeu de
-données réaliste et cohérent — la page LinkedIn de « Boréal Conseil », la même
-ESN fictive que boondmanager-mock — qui ÉVOLUE dans le temps pour éprouver
-l'extraction par fenêtres de dates et par snapshots (cf. evolution.py).
+The surface reproduces the Community Management API (api.linkedin.com/rest,
+`Linkedin-Version` + `X-Restli-Protocol-Version` headers) against ONE
+realistic, coherent dataset — the LinkedIn page of "Boréal Conseil", the same
+fictional consultancy as boondmanager-mock — which EVOLVES over time to
+exercise date-window and snapshot extraction (cf. evolution.py).
 
-Deux modes d'utilisation, délibérément maintenus tous les deux :
+Two usage modes, deliberately kept both:
 
-  • **En process** — `TestClient(linkedin_mock.app)`. La propriété qu'il ne
-    faut pas perdre : l'application que la stack interroge EST celle que les
-    tests exercent.
+  • **In-process** — `TestClient(linkedin_mock.app)`. The property that must
+    not be lost: the application the stack queries IS the one the tests
+    exercise.
 
-  • **En conteneur** — `python -m linkedin_mock`, en docker compose comme en
-    sidecar CI. C'est ce mode qui rend indispensable le plan de contrôle
-    `/__admin` : hors du processus, on ne peut plus muter l'état en Python.
+  • **Containerized** — `python -m linkedin_mock`, in docker compose as in a
+    CI sidecar. This mode is what makes the `/__admin` control plane
+    indispensable: outside the process, state can no longer be mutated from
+    Python.
 
-Ré-exports pour que rien n'ait besoin de connaître la structure interne :
+Re-exports so nothing needs to know the internal structure:
 
-    app              l'application FastAPI
-    state            l'état mutable (dataset, reset)
-    build_dataset    construction du jeu de données
-    settings         la configuration (relue par reload())
-    engine           le moteur d'injection de pannes
-    contrat_openapi  le contrat OpenAPI (sans les affordances du mock)
+    app              the FastAPI application
+    state            the mutable state (dataset, reset)
+    build_dataset    dataset construction
+    settings         the configuration (re-read by reload())
+    engine           the failure injection engine
+    openapi_contract the OpenAPI contract (without the mock's affordances)
 """
 
 from __future__ import annotations
 
-from .app import app, contrat_openapi
+from .app import app, openapi_contract
 from .injection import engine
 from .settings import settings
 from .state import build_dataset, state
@@ -36,8 +37,8 @@ from .state import build_dataset, state
 __all__ = [
     "app",
     "build_dataset",
-    "contrat_openapi",
     "engine",
+    "openapi_contract",
     "settings",
     "state",
 ]

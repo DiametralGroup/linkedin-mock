@@ -1,18 +1,18 @@
-"""Versionnement — l'en-tête `Linkedin-Version: YYYYMM`, obligatoire.
+"""Versioning — the `Linkedin-Version: YYYYMM` header, mandatory.
 
-« No unversioned calls » : l'API versionnée n'applique JAMAIS la dernière
-version par défaut. Les deux refus sont attestés par la doc officielle :
+"No unversioned calls": the versioned API NEVER applies the latest version by
+default. Both refusals are attested by the official doc:
 
-    absent      → 400 {"code": "VERSION_MISSING", ...}
-    hors fenêtre→ 426 {"code": "NONEXISTENT_VERSION",
-                       "message": "Requested version ... is not active"}
+    absent       → 400 {"code": "VERSION_MISSING", ...}
+    out of range → 426 {"code": "NONEXISTENT_VERSION",
+                        "message": "Requested version ... is not active"}
 
-Le refus d'une version MALFORMÉE (`foo`, `2024-08`) est un 400 dont le corps
-exact n'est pas attesté (cf. docs/UNVERIFIED-FIELDS.md).
+The refusal of a MALFORMED version (`foo`, `2024-08`) is a 400 whose exact
+body is not attested (cf. docs/UNVERIFIED-FIELDS.md).
 
-La fenêtre active [oldest, latest] est configurable par env : c'est ce qui
-permet de répéter un retrait de version en cours de trimestre (le scénario
-`version_reject` de l'injection en est le raccourci ponctuel).
+The active window [oldest, latest] is configurable by env: that's what allows
+repeating a mid-quarter version removal (the `version_reject` injection
+scenario is the one-off shortcut for it).
 """
 
 from __future__ import annotations
@@ -22,24 +22,24 @@ import re
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from .errors import erreur, erreur_version_absente, erreur_version_inactive
+from .errors import error, error_inactive_version, error_missing_version
 from .settings import settings
 
 HEADER_VERSION = "Linkedin-Version"
 
-_FORMAT_VERSION = re.compile(r"^\d{6}$")
+_VERSION_FORMAT = re.compile(r"^\d{6}$")
 
 
-def verifier_version(request: Request) -> JSONResponse | None:
-    """None si la version est présente et active, sinon le refus exact."""
-    version = request.headers.get(HEADER_VERSION)  # lookup insensible à la casse
+def verify_version(request: Request) -> JSONResponse | None:
+    """None if the version is present and active, otherwise the exact refusal."""
+    version = request.headers.get(HEADER_VERSION)  # case-insensitive lookup
     if version is None:
-        return erreur_version_absente()
+        return error_missing_version()
     version = version.strip()
-    mois = version[4:6]
-    if not _FORMAT_VERSION.match(version) or not "01" <= mois <= "12":
-        # Corps non attesté — message plausible, inventorié au registre.
-        return erreur(400, f"Invalid version {version}", code="INVALID_VERSION")
+    month = version[4:6]
+    if not _VERSION_FORMAT.match(version) or not "01" <= month <= "12":
+        # Body not attested — plausible message, tracked in the registry.
+        return error(400, f"Invalid version {version}", code="INVALID_VERSION")
     if not settings.oldest_active_version <= version <= settings.latest_active_version:
-        return erreur_version_inactive(version)
+        return error_inactive_version(version)
     return None

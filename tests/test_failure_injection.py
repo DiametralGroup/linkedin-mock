@@ -1,8 +1,8 @@
-"""Les modes de panne — la vraie raison d'être d'un mock.
+"""Failure modes — a mock's real reason for existing.
 
-Le régime LinkedIn a ses spécificités, et ce sont elles qu'on éprouve : quota
-JOURNALIER remis à zéro à minuit UTC (virtuel) SANS Retry-After, 401 non
-retryable à quatre variantes, retrait de version en cours de trimestre.
+The LinkedIn regime has its own specifics, and those are what we exercise:
+DAILY quota reset at (virtual) UTC midnight WITHOUT Retry-After, four
+non-retryable 401 variants, mid-quarter version retirement.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from conftest import ADMIN, ORG_URN_ENC, H
 import linkedin_mock as mock
 
 URL_POSTS = f"/rest/posts?q=author&author={ORG_URN_ENC}"
-URL_PARTAGE = (
+URL_SHARES = (
     "/rest/organizationalEntityShareStatistics"
     f"?q=organizationalEntity&organizationalEntity={ORG_URN_ENC}"
 )
@@ -29,17 +29,18 @@ def _inject(client, **kwargs):
     return r.json()["rule_id"]
 
 
-# ── Le plan de contrôle lui-même ─────────────────────────────────────────────
+# ── The control plane itself ──────────────────────────────────────────────────
 
 
-def test_admin_exige_son_jeton(client):
+def test_admin_requires_its_token(client):
     assert client.get("/__admin/state").status_code == 401
-    assert client.get("/__admin/state", headers={"X-Mock-Admin-Token": "faux"}).status_code == 401
+    assert client.get("/__admin/state", headers={"X-Mock-Admin-Token": "wrong"}).status_code == 401
 
 
-def test_admin_absent_quand_desactive():
-    """Le routeur n'est PAS monté quand le plan est désactivé — absent, pas
-    interdit. Vérifié dans un processus NEUF : le montage se joue à l'import."""
+def test_admin_absent_when_disabled():
+    """The router is NOT mounted when the control plane is disabled — absent,
+    not forbidden. Checked in a FRESH process: the mount happens at import
+    time."""
     code = (
         "import os\n"
         "os.environ['LINKEDIN_MOCK_ADMIN_ENABLED'] = 'false'\n"
@@ -49,54 +50,54 @@ def test_admin_absent_quand_desactive():
         "assert r.status_code == 404, r.status_code\n"
         "assert 'No root resource' in r.json()['message']\n"
     )
-    environnement = {k: v for k, v in os.environ.items() if k != "LINKEDIN_MOCK_ADMIN_ENABLED"}
-    resultat = subprocess.run(
-        [sys.executable, "-c", code], env=environnement, capture_output=True, text=True, check=False
+    environment = {k: v for k, v in os.environ.items() if k != "LINKEDIN_MOCK_ADMIN_ENABLED"}
+    result = subprocess.run(
+        [sys.executable, "-c", code], env=environment, capture_output=True, text=True, check=False
     )
-    assert resultat.returncode == 0, resultat.stderr
+    assert result.returncode == 0, result.stderr
 
 
-def test_kind_inconnu_refuse(client):
+def test_unknown_kind_rejected(client):
     r = client.post("/__admin/inject", json={"kind": "explosion"}, headers=ADMIN)
     assert r.status_code == 422
 
 
-# ── Quota journalier ─────────────────────────────────────────────────────────
+# ── Daily quota ────────────────────────────────────────────────────────────────
 
 
-def test_quota_journalier_et_minuit_utc(client):
-    """429 au-delà du quota du jour, puis l'horloge passe minuit UTC virtuel
-    et le compteur repart — sans Retry-After à aucun moment."""
+def test_daily_quota_and_utc_midnight(client):
+    """429 past the day's quota, then the clock crosses virtual UTC midnight
+    and the counter restarts — with no Retry-After at any point."""
     _inject(client, kind="rate_limit", scope="/rest/posts", after_requests=2)
     assert client.get(URL_POSTS, headers=H).status_code == 200
     assert client.get(URL_POSTS, headers=H).status_code == 200
-    refus = client.get(URL_POSTS, headers=H)
-    assert refus.status_code == 429
-    assert "Retry-After" not in refus.headers
-    # Ignorer le 429 et retenter immédiatement : toujours 429.
+    denial = client.get(URL_POSTS, headers=H)
+    assert denial.status_code == 429
+    assert "Retry-After" not in denial.headers
+    # Ignore the 429 and retry immediately: still 429.
     assert client.get(URL_POSTS, headers=H).status_code == 429
 
     client.post("/__admin/clock", json={"advance_seconds": 86_400}, headers=ADMIN)
     assert client.get(URL_POSTS, headers=H).status_code == 200
 
 
-def test_quota_ne_fuit_pas_entre_chemins(client):
+def test_quota_does_not_leak_across_paths(client):
     _inject(client, kind="rate_limit", scope="/rest/posts", after_requests=1)
     assert client.get(URL_POSTS, headers=H).status_code == 200
     assert client.get(URL_POSTS, headers=H).status_code == 429
-    # Le quota vise /rest/posts : les statistiques restent servies.
-    assert client.get(URL_PARTAGE, headers=H).status_code == 200
+    # The quota targets /rest/posts: statistics keep being served.
+    assert client.get(URL_SHARES, headers=H).status_code == 200
 
 
-def test_quota_de_base_survit_au_reset(client):
-    """La ligne de base déclarée par l'environnement est réappliquée à chaque
-    reset — un test ne peut pas l'annuler par inadvertance."""
+def test_baseline_quota_survives_reset(client):
+    """The baseline declared by the environment is reapplied on every
+    reset — a test can't accidentally cancel it."""
     os.environ["LINKEDIN_MOCK_DAILY_QUOTA"] = "1"
     try:
         mock.settings.reload()
         mock.state.reset()
-        regles = client.get("/__admin/state", headers=ADMIN).json()["injections"]
-        assert any(r["kind"] == "rate_limit" for r in regles)
+        rules = client.get("/__admin/state", headers=ADMIN).json()["injections"]
+        assert any(r["kind"] == "rate_limit" for r in rules)
         assert client.get(URL_POSTS, headers=H).status_code == 200
         assert client.get(URL_POSTS, headers=H).status_code == 429
     finally:
@@ -105,55 +106,55 @@ def test_quota_de_base_survit_au_reset(client):
         mock.state.reset()
 
 
-# ── Pannes franches et transitoires ──────────────────────────────────────────
+# ── Hard and transient failures ───────────────────────────────────────────────
 
 
-def test_status_transitoire_s_epuise(client):
+def test_transient_status_exhausts(client):
     _inject(client, kind="status", scope="/rest/posts", status=503, times=2)
     assert client.get(URL_POSTS, headers=H).status_code == 503
     assert client.get(URL_POSTS, headers=H).status_code == 503
     assert client.get(URL_POSTS, headers=H).status_code == 200
 
 
-def test_status_persistant_ne_s_epuise_pas(client):
+def test_persistent_status_does_not_exhaust(client):
     _inject(client, kind="status", scope="/rest/posts", status=500)
     for _ in range(3):
         assert client.get(URL_POSTS, headers=H).status_code == 500
 
 
-def test_latence_reelle(client):
+def test_real_latency(client):
     _inject(client, kind="latency", scope="/rest/posts", seconds=0.2, times=1)
-    depart = time.monotonic()
+    start = time.monotonic()
     assert client.get(URL_POSTS, headers=H).status_code == 200
-    assert time.monotonic() - depart >= 0.15
-    # La règle est épuisée : la requête suivante est rapide.
-    depart = time.monotonic()
+    assert time.monotonic() - start >= 0.15
+    # The rule is exhausted: the next request is fast.
+    start = time.monotonic()
     client.get(URL_POSTS, headers=H)
-    assert time.monotonic() - depart < 0.15
+    assert time.monotonic() - start < 0.15
 
 
-# ── Rejets d'authentification et de version ──────────────────────────────────
+# ── Auth and version rejections ───────────────────────────────────────────────
 
 
-def test_auth_reject_toutes_variantes(client):
-    attendus = {
+def test_auth_reject_all_variants(client):
+    expected = {
         "empty": "Empty oauth2_access_token",
         "invalid": "Invalid access token",
         "expired": "The token used in the request has expired",
         "revoked": "The token used in the request has been revoked by the member",
     }
-    for variante, message in attendus.items():
-        ident = _inject(client, kind="auth_reject", scope="/rest/posts", variant=variante, times=1)
-        r = client.get(URL_POSTS, headers=H)  # les identifiants sont pourtant VALIDES
-        assert r.status_code == 401, variante
+    for variant, message in expected.items():
+        rule_id = _inject(client, kind="auth_reject", scope="/rest/posts", variant=variant, times=1)
+        r = client.get(URL_POSTS, headers=H)  # credentials are otherwise VALID
+        assert r.status_code == 401, variant
         assert r.json()["message"] == message
-        client.delete(f"/__admin/inject/{ident}", headers=ADMIN)
+        client.delete(f"/__admin/inject/{rule_id}", headers=ADMIN)
     assert client.get(URL_POSTS, headers=H).status_code == 200
 
 
-def test_version_reject_mi_trimestre(client):
-    """Un retrait de version SANS toucher à la fenêtre : le 426 que le
-    connecteur verra le jour où LinkedIn retire sa version épinglée."""
+def test_version_reject_mid_quarter(client):
+    """A version retirement WITHOUT touching the window: the 426 the
+    connector will see the day LinkedIn retires its pinned version."""
     _inject(client, kind="version_reject", scope="*", times=1)
     r = client.get(URL_POSTS, headers=H)
     assert r.status_code == 426
@@ -161,42 +162,42 @@ def test_version_reject_mi_trimestre(client):
     assert client.get(URL_POSTS, headers=H).status_code == 200
 
 
-# ── Dérive de pagination ─────────────────────────────────────────────────────
+# ── Pagination drift ───────────────────────────────────────────────────────────
 
 
-def test_page_drift_insert_duplique(client):
-    """Une insertion en amont entre deux pages : le dernier élément de la
-    page 1 réapparaît en tête de la page 2 — la duplication silencieuse que
-    le merge sur clé doit absorber."""
+def test_page_drift_insert_duplicates(client):
+    """An upstream insert between two pages: page 1's last element resurfaces
+    at the head of page 2 — the silent duplication a merge-on-key must
+    absorb."""
     page_1 = client.get(f"{URL_POSTS}&start=0&count=10", headers=H).json()["elements"]
     _inject(client, kind="page_drift", scope="/rest/posts", mode="insert")
     page_2 = client.get(f"{URL_POSTS}&start=10&count=10", headers=H).json()["elements"]
     assert page_2[0]["id"] == page_1[-1]["id"]
 
 
-def test_page_drift_remove_saute(client):
-    tous = client.get(f"{URL_POSTS}&start=0&count=30", headers=H).json()["elements"]
+def test_page_drift_remove_skips(client):
+    all_elements = client.get(f"{URL_POSTS}&start=0&count=30", headers=H).json()["elements"]
     _inject(client, kind="page_drift", scope="/rest/posts", mode="remove")
     page_2 = client.get(f"{URL_POSTS}&start=10&count=10", headers=H).json()["elements"]
-    assert page_2[0]["id"] == tous[11]["id"]  # l'élément 10 n'est jamais servi
+    assert page_2[0]["id"] == all_elements[11]["id"]  # element 10 is never served
 
 
-# ── Observabilité ────────────────────────────────────────────────────────────
+# ── Observability ──────────────────────────────────────────────────────────────
 
 
-def test_last_query_params_prouve_le_time_intervals(client):
-    """LE mécanisme qui permet au consommateur de prouver qu'il a ENVOYÉ sa
-    fenêtre — un pipeline qui l'oublierait passerait sinon tous ses tests."""
-    fenetre = "(timeRange:(start:1780617600000,end:1781222400000),timeGranularityType:DAY)"
-    client.get(f"{URL_PARTAGE}&timeIntervals={fenetre}", headers=H)
-    etat = client.get("/__admin/state", headers=ADMIN).json()
-    params = etat["last_query_params_by_path"]["/rest/organizationalEntityShareStatistics"]
-    assert params["timeIntervals"] == fenetre
+def test_last_query_params_proves_the_time_intervals(client):
+    """THE mechanism that lets a consumer prove it SENT its window — a
+    pipeline that forgot it would otherwise pass all its other tests."""
+    window = "(timeRange:(start:1780617600000,end:1781222400000),timeGranularityType:DAY)"
+    client.get(f"{URL_SHARES}&timeIntervals={window}", headers=H)
+    admin_state = client.get("/__admin/state", headers=ADMIN).json()
+    params = admin_state["last_query_params_by_path"]["/rest/organizationalEntityShareStatistics"]
+    assert params["timeIntervals"] == window
     assert params["q"] == "organizationalEntity"
 
 
-def test_reset_avec_nouvelle_graine_change_le_monde(client):
-    avant = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]["id"]
+def test_reset_with_new_seed_changes_the_world(client):
+    before = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]["id"]
     client.post("/__admin/reset", json={"seed": 7}, headers=ADMIN)
-    apres = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]["id"]
-    assert avant != apres
+    after = client.get(f"{URL_POSTS}&count=1", headers=H).json()["elements"][0]["id"]
+    assert before != after

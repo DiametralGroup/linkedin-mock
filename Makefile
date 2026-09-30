@@ -33,10 +33,10 @@ up:          ## Run the mock in a container (docker compose up --build)
 	docker compose up --build
 
 contract:    ## Regenerate contracts/linkedin.openapi.yaml from the app
-	@# `contrat_openapi()` rather than `app.openapi()`: the contract describes
+	@# `openapi_contract()` rather than `app.openapi()`: the contract describes
 	@# the LinkedIn DIALECT. /__admin is a mock affordance — publishing it would
 	@# pass off as vendor API what is not, and it is only mounted conditionally,
 	@# which would make the contract depend on the generation environment.
 	$(UV) run python -c "import yaml, linkedin_mock as m; \
-open('contracts/linkedin.openapi.yaml','w').write(yaml.safe_dump(m.contrat_openapi(), sort_keys=False, allow_unicode=True))"
+open('contracts/linkedin.openapi.yaml','w').write(yaml.safe_dump(m.openapi_contract(), sort_keys=False, allow_unicode=True))"
 	@echo "✓ contract regenerated — REVIEW the diff: a changed response shape is a contract change for consumers"
